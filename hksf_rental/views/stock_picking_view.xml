@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Inherit stock.picking form view -->
+    <record id="view_picking_form_hksf_delivery" model="ir.ui.view">
+        <field name="name">stock.picking.form.hksf.delivery</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+
+            <!-- Inline Repair / Damage qty columns on the collection move lines,
+                 right after the Demand column. Visible ONLY on incoming
+                 (collection) pickings so they don't leak onto deliveries or
+                 other modules' pickings. -->
+            <xpath expr="//field[@name='move_ids']/list/field[@name='product_uom_qty']" position="after">
+                <field name="repair_qty"
+                       string="Repair"
+                       optional="show"
+                       column_invisible="parent.picking_type_code != 'incoming'"/>
+                <field name="damage_qty"
+                       string="Damage"
+                       optional="show"
+                       column_invisible="parent.picking_type_code != 'incoming'"/>
+            </xpath>
+
+            <!-- Header button: assign return quantities (on done collections).
+                 NOTE: the order-level "Create Collection" button lives on the
+                 sale order form (see views/sale_order_view.xml), matching the
+                 Odoo 11 collection_create_from_so flow. -->
+            <xpath expr="//header" position="inside">
+                <button name="%(action_return_move_select_wizard)d"
+                        type="action"
+                        string="Assign Return Qty"
+                        invisible="picking_type_code != 'incoming' or state != 'done'"/>
+                <!-- ONE merged button: re-syncs BOTH the rental return credit
+                     (after the collected/Done qty was corrected) AND the
+                     Repair/Damage lines (from the inline columns). Idempotent;
+                     edit the Done qty first, then press this. -->
+                <button name="action_sync_collection"
+                        type="object"
+                        string="Sync Collection"
+                        invisible="picking_type_code != 'incoming' or state != 'done'"/>
+            </xpath>
+
+            <!-- Scheduled Date Only — after date_deadline (renamed from scheduled_date in Odoo 17+) -->
+            <xpath expr="//field[@name='date_deadline']" position="after">
+                <field name="scheduled_date_only"/>
+            </xpath>
+
+            <!-- Custom fields in a new notebook page -->
+            <xpath expr="//notebook" position="inside">
+                <page string="Delivery Info" name="hksf_delivery_info">
+                    <group>
+                        <group string="Logistics">
+                            <field name="delivery_type"/>
+                            <field name="transportation_method"/>
+                            <field name="license_plate"/>
+                            <field name="truck_size_selection"/>
+                            <field name="custom_employee_id"/>
+                            <field name="time_in"/>
+                            <field name="time_out"/>
+                        </group>
+                        <group string="Invoice">
+                            <field name="invoice_id"/>
+                            <field name="last_invoice_date"/>
+                            <field name="is_create_transport_invoice" invisible="1"/>
+                            <field name="is_from_previous_month"/>
+                            <field name="custom_sale_order_id"/>
+                            <field name="partner_parent_id"/>
+                        </group>
+                    </group>
+                    <separator string="Site Contacts"/>
+                    <field name="site_contact_ids" widget="many2many_tags"/>
+                    <separator string="Transport Charges"/>
+                    <field name="transport_charge_ids">
+                        <list editable="bottom">
+                            <field name="product_id"/>
+                            <field name="name"/>
+                            <field name="product_uom_qty"/>
+                            <field name="product_uom"/>
+                            <field name="price_unit"/>
+                            <field name="invoice_id"/>
+                            <field name="is_create_transport_invoice" column_invisible="True"/>
+                        </list>
+                    </field>
+                    <separator string="Repair / Damage"/>
+                    <field name="collection_repair_ids">
+                        <list editable="bottom">
+                            <field name="product_id"/>
+                            <field name="internal_ref"/>
+                            <field name="qty"/>
+                            <field name="type"/>
+                            <field name="price_unit"/>
+                            <field name="invoice_id"/>
+                        </list>
+                    </field>
+                </page>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>

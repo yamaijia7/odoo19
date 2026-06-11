@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record model="ir.ui.view" id="view_collection_return_wizard_form">
+        <field name="name">collection.return.wizard.form</field>
+        <field name="model">collection.return.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Create Collection">
+                <p>This wizard will create a collection order for the outstanding products on this sale order.</p>
+                <group>
+                    <field name="collection_date"/>
+                </group>
+                <footer>
+                    <button string="Create Collection" name="action_create_collection"
+                            type="object" default_focus="1" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_collection_return_wizard" model="ir.actions.act_window">
+        <field name="name">Create Collection</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">collection.return.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

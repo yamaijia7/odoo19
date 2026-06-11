@@ -1,0 +1,16 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_delivery_return_history_user,delivery.return.history user,model_delivery_return_history,base.group_user,1,1,1,1
+access_transport_charge_user,transport.charge user,model_transport_charge,base.group_user,1,1,1,1
+access_collection_repair_damage_user,collection.repair.damage user,model_collection_repair_damage,base.group_user,1,1,1,1
+access_product_outstanding_user,product.outstanding user,model_product_outstanding,base.group_user,1,1,1,1
+access_return_move_select_wizard_user,return.move.select.wizard user,model_return_move_select_wizard,base.group_user,1,1,1,1
+access_return_move_select_wizard_line_user,return.move.select.wizard.line user,model_return_move_select_wizard_line,base.group_user,1,1,1,1
+access_return_move_collection_wizard_user,return.move.collection.wizard user,model_return_move_collection_wizard,base.group_user,1,1,1,1
+access_return_move_collection_wizard_line_user,return.move.collection.wizard.line user,model_return_move_collection_wizard_line,base.group_user,1,1,1,1
+access_hksf_delivery_invoice_wizard_user,hksf.delivery.invoice.wizard user,model_hksf_delivery_invoice_wizard,base.group_user,1,1,1,1
+access_damage_lost_invoice_wizard_user,damage.lost.invoice.wizard user,model_damage_lost_invoice_wizard,base.group_user,1,1,1,1
+access_damage_lost_invoice_wizard_line_user,damage.lost.invoice.wizard.line user,model_damage_lost_invoice_wizard_line,base.group_user,1,1,1,1
+access_sale_line_qty_update_wizard_user,sale.line.qty.update.wizard user,model_sale_line_qty_update_wizard,base.group_user,1,1,1,1
+access_sale_line_qty_update_wizard_line_user,sale.line.qty.update.wizard.line user,model_sale_line_qty_update_wizard_line,base.group_user,1,1,1,1
+access_manual_month_update_wizard_user,manual.month.update.wizard user,model_manual_month_update_wizard,base.group_user,1,1,1,1
+access_collection_return_wizard_user,collection.return.wizard user,model_collection_return_wizard,base.group_user,1,1,1,1

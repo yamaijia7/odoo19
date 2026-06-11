@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_company_form_hksf_rental" model="ir.ui.view">
+        <field name="name">res.company.form.hksf.rental</field>
+        <field name="model">res.company</field>
+        <field name="inherit_id" ref="base.view_company_form"/>
+        <field name="arch" type="xml">
+            <!-- Put the rental report images in their own notebook page,
+                 mirroring the Odoo 11 "Other Info" tab, instead of crowding
+                 the company logo header. -->
+            <xpath expr="//notebook" position="inside">
+                <page string="Rental Report Images" name="hksf_report_images">
+                    <group>
+                        <group string="Company Header Logo"
+                               help="Wide banner printed full-width at the top of every rental invoice page.">
+                            <field name="custom_header_logo" widget="image"
+                                   nolabel="1" class="oe_avatar"/>
+                        </group>
+                        <group string="Company Stamp">
+                            <field name="company_stamp" widget="image"
+                                   nolabel="1" class="oe_avatar"/>
+                        </group>
+                        <group string="Chop &amp; Sign">
+                            <field name="custom_chop_and_sign" widget="image"
+                                   nolabel="1" class="oe_avatar"/>
+                        </group>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>

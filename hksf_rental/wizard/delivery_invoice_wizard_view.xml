@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_hksf_delivery_invoice_wizard_form" model="ir.ui.view">
+        <field name="name">hksf.delivery.invoice.wizard.form</field>
+        <field name="model">hksf.delivery.invoice.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Create Delivery Invoice">
+                <group>
+                    <group string="Billing Period">
+                        <field name="start_date"/>
+                        <field name="end_date"/>
+                        <field name="charge_type"/>
+                    </group>
+                    <group string="Options">
+                        <field name="invoice_for"/>
+                        <field name="minimum_charge_method"/>
+                        <field name="journal_id"/>
+                        <field name="company_id"/>
+                    </group>
+                </group>
+                <footer>
+                    <button name="action_create_delivery_invoice"
+                            string="Create Invoice"
+                            type="object"
+                            class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

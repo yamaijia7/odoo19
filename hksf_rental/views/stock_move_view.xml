@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Add optional HKSF columns to the stock.move list view.
+        stock.view_move_tree is the standard Odoo 19 external ID.
+    -->
+    <record id="view_move_list_hksf_delivery" model="ir.ui.view">
+        <field name="name">stock.move.list.hksf.delivery</field>
+        <field name="model">stock.move</field>
+        <field name="inherit_id" ref="stock.view_move_tree"/>
+        <field name="arch" type="xml">
+            <!-- Append HKSF columns at the end of the list -->
+            <xpath expr="//list" position="inside">
+                <field name="invoiced_quantity"       optional="show"/>
+                <field name="new_return_quantity"     optional="show"/>
+                <field name="new_remaining_quantity"  optional="show"/>
+                <field name="new_invoicing_quantity"  optional="show"/>
+                <field name="last_invoice_date"       optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- stock.move form — add HKSF section in a safe position -->
+    <record id="view_move_form_hksf_delivery" model="ir.ui.view">
+        <field name="name">stock.move.form.hksf.delivery</field>
+        <field name="model">stock.move</field>
+        <field name="inherit_id" ref="stock.view_move_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet" position="inside">
+                <group string="HKSF Delivery" col="2" name="hksf_move_group">
+                    <field name="custom_sale_id"/>
+                    <field name="custom_sale_line_id"/>
+                    <field name="invoiced_quantity"/>
+                    <field name="new_return_quantity"/>
+                    <field name="new_remaining_quantity"/>
+                    <field name="new_invoicing_quantity"/>
+                    <field name="last_invoice_date"/>
+                    <field name="tmp_invoiced_qty"/>
+                </group>
+                <separator string="Return History"/>
+                <field name="delivery_return_history_ids">
+                    <list>
+                        <field name="deliver_move_id"/>
+                        <field name="return_move_id"/>
+                        <field name="return_qty"/>
+                        <field name="delivered_qty"/>
+                        <field name="deliver_invoice_line_id"/>
+                        <field name="return_invoice_line_id"/>
+                    </list>
+                </field>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

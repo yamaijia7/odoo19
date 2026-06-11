@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_return_move_select_wizard_form" model="ir.ui.view">
+        <field name="name">return.move.select.wizard.form</field>
+        <field name="model">return.move.select.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Assign Return Quantities">
+                <group>
+                    <field name="picking_id"/>
+                    <field name="move_id"/>
+                    <field name="sale_order_id" readonly="1"/>
+                    <field name="total_qty_return"/>
+                </group>
+                <separator string="Delivery Moves"/>
+                <field name="line_ids">
+                    <list editable="bottom">
+                        <field name="picking_scheduled_date"/>
+                        <field name="deliver_move_id"/>
+                        <field name="delivered_qty"/>
+                        <field name="return_qty"/>
+                    </list>
+                </field>
+                <footer>
+                    <button name="action_confirm" string="Confirm" type="object"
+                            class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_return_move_select_wizard" model="ir.actions.act_window">
+        <field name="name">Assign Return Quantities</field>
+        <field name="res_model">return.move.select.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

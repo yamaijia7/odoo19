@@ -1,0 +1,329 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+
+    <!-- ================================================================
+         Report actions (Print menu on invoices)
+         ================================================================ -->
+    <record id="action_report_detail_material_rent" model="ir.actions.report">
+        <field name="name">Detailed Material Rent</field>
+        <field name="model">account.move</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">hksf_rental.report_detail_material_rent</field>
+        <field name="report_file">hksf_rental.report_detail_material_rent</field>
+        <field name="paperformat_id" ref="hksf_rental.hksf_rental_invoice_paper_format"/>
+        <field name="binding_model_id" ref="account.model_account_move"/>
+        <field name="binding_type">report</field>
+    </record>
+
+    <record id="action_report_material_rent_new" model="ir.actions.report">
+        <field name="name">Material Rent</field>
+        <field name="model">account.move</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">hksf_rental.report_material_rent_new</field>
+        <field name="report_file">hksf_rental.report_material_rent_new</field>
+        <field name="paperformat_id" ref="hksf_rental.hksf_rental_invoice_paper_format"/>
+        <field name="binding_model_id" ref="account.model_account_move"/>
+        <field name="binding_type">report</field>
+    </record>
+
+
+    <!-- ================================================================
+         Custom company / client header (mirrors Odoo 11
+         odoo_account_extend.global_invoice_image_header). Repeats on
+         every page via the <div class="header"> band.
+         ================================================================ -->
+    <template id="report_material_rent_header">
+        <t t-set="company" t-value="o.company_id"/>
+        <!-- Inline styles only. This header sub-document is rendered by
+             wkhtmltopdf as a separate header HTML. If the report asset
+             bundles (web.report_assets_pdf/common) fail to load over the
+             network (e.g. wrong report.url / web.base.url unreachable from
+             the server), Bootstrap classes resolve to nothing AND the
+             layout html height:0 collapses the band to a blank strip.
+             We therefore set explicit heights/fonts inline so the header
+             always renders regardless of external CSS. -->
+        <div class="header" style="font-family:Helvetica,Arial,sans-serif; font-size:11px; color:#000; min-height:1px;">
+            <img t-if="company.custom_header_logo"
+                 t-att-src="image_data_uri(company.custom_header_logo)"
+                 style="width:100%; max-height:38mm; object-fit:contain; display:block;"/>
+            <h2 style="text-align:center; font-size:22px; font-weight:bold; margin:6px 0 2px 0;">
+                <t t-if="o.move_type == 'out_refund'">CREDIT NOTE</t>
+                <t t-elif="o.state == 'draft'">DRAFT INVOICE</t>
+                <t t-elif="o.state == 'cancel'">CANCELLED INVOICE</t>
+                <t t-else="">INVOICE</t>
+            </h2>
+            <div style="text-align:right; margin-bottom:2px;">
+                <strong>Invoice No: </strong>
+                <span t-if="o.name and o.name != '/'" t-field="o.name"/>
+            </div>
+            <div style="border-top:2px solid black;"/>
+            <table style="width:100%; margin-top:4px;">
+                <tr>
+                    <td style="width:50%; vertical-align:top;">
+                        <t t-if="o.invoice_origin">
+                            <strong>Our Ref : </strong>
+                            <span t-field="o.invoice_origin"/>
+                        </t>
+                    </td>
+                    <td style="width:50%; vertical-align:top;"></td>
+                </tr>
+                <tr>
+                    <td style="vertical-align:top;">
+                        <strong>Client : </strong>
+                        <strong><span t-field="o.partner_id.commercial_partner_id.name"/></strong>
+                    </td>
+                    <td style="vertical-align:top;">
+                        <t t-if="o.invoice_date">
+                            <strong>Date : </strong>
+                            <span t-field="o.invoice_date" t-options="{'format': 'd MMMM y'}"/>
+                        </t>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="vertical-align:top;">
+                        <strong>Address : </strong>
+                        <t t-set="cp" t-value="o.partner_id.commercial_partner_id"/>
+                        <span t-if="cp.street" t-field="cp.street"/>
+                        <t t-if="cp.street2"><br/><span t-field="cp.street2"/></t>
+                        <t t-if="cp.city"><br/><span t-field="cp.city"/></t>
+                    </td>
+                    <td style="vertical-align:top;">
+                        <t t-set="sp" t-value="o.partner_shipping_id"/>
+                        <t t-if="sp and sp.street">
+                            <strong>Site : </strong>
+                            <span t-field="sp.street"/>
+                            <t t-if="sp.street2"><br/><span t-field="sp.street2"/></t>
+                        </t>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="vertical-align:top;">
+                        <t t-if="o.partner_id.name">
+                            <strong>Attn : </strong>
+                            <span t-field="o.partner_id.name"/>
+                        </t>
+                    </td>
+                    <td style="vertical-align:top;">
+                        <t t-if="o.partner_id.commercial_partner_id.phone">
+                            <strong>Tel : </strong>
+                            <span t-field="o.partner_id.commercial_partner_id.phone"/>
+                        </t>
+                        <t t-if="o.partner_id.commercial_partner_id.custom_fax">
+                            <strong> / Fax : </strong>
+                            <span t-field="o.partner_id.commercial_partner_id.custom_fax"/>
+                        </t>
+                    </td>
+                </tr>
+            </table>
+            <t t-if="o.rental_subject_line">
+                <div style="text-align:center; margin-top:4px; font-size:14px; font-weight:bold;">RE: <span t-field="o.rental_subject_line"/></div>
+            </t>
+            <div style="border-bottom:2px solid black; margin-top:4px;"/>
+        </div>
+        <div class="article">
+            <t t-out="0"/>
+        </div>
+        <div class="footer" style="font-family:Helvetica,Arial,sans-serif; font-size:10px;">
+            <div style="text-align:center; color:#777;">
+                Page: <span class="page"/> / <span class="topage"/>
+            </div>
+        </div>
+    </template>
+
+    <!-- ================================================================
+         Shared document template
+         ================================================================ -->
+    <template id="report_material_rent_document">
+        <div class="page">
+            <t t-set="invoice_new_vals"
+               t-value="o.with_context(report_print_type=report_print_type).print_cutom_invoice()"/>
+            <t t-set="vals" t-value="invoice_new_vals['new_val_dict']"/>
+
+            <table class="table table-bordered table-sm" style="width:100%;">
+                <thead>
+                    <tr style="background-color:#000000;color:#ffffff;">
+                        <th style="width:53%;">Description</th>
+                        <th style="width:12%;" class="text-end">
+                            <t t-if="o.charge_type=='weekly'">Hire/Weekly</t>
+                            <t t-else="">Hire/Month</t>
+                        </th>
+                        <th style="width:12%;" class="text-end">Qty(PCS)</th>
+                        <th style="width:10%;" class="text-end">
+                            <t t-if="o.charge_type=='weekly'">Weekly</t>
+                            <t t-else="">Monthly</t>
+                        </th>
+                        <th style="width:13%;" class="text-end">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <t t-set="rental_amount" t-value="0.0"/>
+                    <t t-set="return_amount" t-value="0.0"/>
+                    <t t-set="transport_total" t-value="0.0"/>
+
+                    <!-- Sections 1, 2, 3, 5 (rental / balance / deduction / lost) -->
+                    <t t-foreach="[1, 2, 3, 5]" t-as="seq">
+                        <t t-foreach="vals[seq]" t-as="grp">
+                            <t t-set="grp_lines" t-value="vals[seq][grp]"/>
+                            <t t-set="first_line" t-value="grp_lines[0] if grp_lines else False"/>
+                            <!-- Group header row: name + (date range) + day count,
+                                 mirroring Odoo 11. Days/dates live HERE, not on the
+                                 individual product lines below. -->
+                            <tr style="page-break-inside: avoid;">
+                                <td>
+                                    <strong t-if="seq == 1 and o.charge_type=='weekly'">Balance brought from last week</strong>
+                                    <strong t-if="seq == 1 and o.charge_type=='monthly'">Balance brought from last month</strong>
+                                    <strong t-if="seq in (2, 3)">
+                                        <span t-field="grp.name"/>
+                                        <t t-if="grp.scheduled_date_only"> on <span t-field="grp.scheduled_date_only" t-options="{'format': 'dd/MM/yyyy'}"/></t>
+                                    </strong>
+                                    <strong t-if="seq == 5">Lost Material</strong>
+                                </td>
+                                <!-- date range, centred across Hire/Qty/Monthly -->
+                                <td colspan="3" class="text-center">
+                                    <b t-if="first_line and first_line.start_date and first_line.end_date">
+                                        <t t-if="seq == 3">Deducted </t>
+                                        ( <span t-field="first_line.start_date" t-options="{'format': 'dd/MM/yyyy'}"/> - <span t-field="first_line.end_date" t-options="{'format': 'dd/MM/yyyy'}"/> )
+                                    </b>
+                                </td>
+                                <!-- day count, right aligned -->
+                                <td class="text-end">
+                                    <b t-if="seq == 1">
+                                        <t t-if="o.charge_type=='monthly' and first_line and first_line.days == 30">One Month</t>
+                                        <t t-elif="o.charge_type=='monthly' and first_line"><span t-out="first_line.days"/> Days</t>
+                                        <t t-elif="o.charge_type=='weekly' and first_line and first_line.days == 7">One Week</t>
+                                        <t t-elif="o.charge_type=='weekly' and first_line"><span t-out="first_line.days"/> Days</t>
+                                    </b>
+                                    <b t-if="seq in (2, 3) and first_line">
+                                        <t t-if="seq == 3">-</t><span t-out="first_line.days"/> Days
+                                    </b>
+                                </td>
+                            </tr>
+                            <t t-set="grp_monthly" t-value="0.0"/>
+                            <t t-set="grp_amount" t-value="0.0"/>
+                            <tr t-foreach="grp_lines" t-as="inv_line" style="page-break-inside: avoid;">
+                                <td>
+                                    <span t-field="inv_line.name"/>
+                                    <t t-if="inv_line.minimum_charge_days and o.minimum_charge_method != 'first_charge'"> [Minimum charge applied for <strong t-out="inv_line.minimum_charge_days"/> days]</t>
+                                    <t t-if="o.minimum_charge_method == 'first_charge' and inv_line.minimum_charge_days"> (min. one month hire)</t>
+                                </td>
+                                <td class="text-end">
+                                    <span t-field="inv_line.custom_price_unit"
+                                          t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/>
+                                </td>
+                                <td class="text-end">
+                                    <span t-out="o.change_quantity_format(inv_line.quantity)"/>
+                                    <span t-field="inv_line.product_uom_id"/>
+                                </td>
+                                <td class="text-end">
+                                    <t t-set="grp_monthly" t-value="grp_monthly + inv_line.monthly_amount"/>
+                                    <span t-field="inv_line.monthly_amount"
+                                          t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/>
+                                </td>
+                                <td class="text-end">
+                                    <t t-set="grp_amount" t-value="grp_amount + inv_line.price_subtotal"/>
+                                    <span t-field="inv_line.price_subtotal"
+                                          t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/>
+                                </td>
+                            </tr>
+                            <tr style="page-break-inside: avoid;">
+                                <td colspan="3"></td>
+                                <td class="text-end">
+                                    <b><span t-out="grp_monthly"
+                                             t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/></b>
+                                </td>
+                                <td class="text-end">
+                                    <b><span t-out="grp_amount"
+                                             t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/></b>
+                                </td>
+                            </tr>
+                            <t t-if="grp_amount &gt; 0">
+                                <t t-set="rental_amount" t-value="rental_amount + grp_amount"/>
+                            </t>
+                            <t t-if="grp_amount &lt; 0">
+                                <t t-set="return_amount" t-value="return_amount + grp_amount"/>
+                            </t>
+                        </t>
+                    </t>
+
+                    <!-- Section 4: Transport Charges -->
+                    <tr t-if="vals[4]" style="page-break-inside: avoid;">
+                        <td colspan="5"><b>Transport Charges</b></td>
+                    </tr>
+                    <t t-foreach="vals[4]" t-as="grp">
+                        <tr t-foreach="vals[4][grp]" t-as="inv_line" style="page-break-inside: avoid;">
+                            <td colspan="2">
+                                <span t-field="inv_line.name"/>
+                                <t t-if="inv_line.picking_id"> [<span t-field="inv_line.picking_id.name"/>]</t>
+                                <span t-if="inv_line.picking_id.license_plate" t-field="inv_line.picking_id.license_plate"/>
+                            </td>
+                            <td class="text-end">
+                                <span t-out="o.change_quantity_format(inv_line.quantity)"/>
+                            </td>
+                            <td class="text-end">
+                                <span t-field="inv_line.price_unit"
+                                      t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/>
+                            </td>
+                            <td class="text-end">
+                                <b><span t-field="inv_line.price_subtotal"
+                                         t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/></b>
+                                <t t-set="transport_total" t-value="transport_total + inv_line.price_subtotal"/>
+                            </td>
+                        </tr>
+                    </t>
+
+                    <!-- Totals -->
+                    <tr style="page-break-inside: avoid;" t-if="(rental_amount + return_amount) != 0.0">
+                        <td colspan="4"><b>Total Hire Charges</b></td>
+                        <td class="text-end">
+                            <b><span t-out="rental_amount + return_amount"
+                                     t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/></b>
+                        </td>
+                    </tr>
+                    <tr style="page-break-inside: avoid;" t-if="transport_total">
+                        <td colspan="4"><b>Total Transport Charge</b></td>
+                        <td class="text-end">
+                            <b><span t-out="transport_total"
+                                     t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/></b>
+                        </td>
+                    </tr>
+                    <tr style="page-break-inside: avoid;">
+                        <td colspan="4"><b>Grand Total</b></td>
+                        <td class="text-end">
+                            <b><span t-out="rental_amount + return_amount + transport_total"
+                                     t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/></b>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </template>
+
+    <!-- ================================================================
+         Detailed Material Rent  (all lines)
+         ================================================================ -->
+    <template id="report_detail_material_rent">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="o">
+                <t t-set="report_print_type" t-value="'detail_rent'"/>
+                <t t-call="hksf_rental.report_material_rent_header">
+                    <t t-call="hksf_rental.report_material_rent_document"/>
+                </t>
+            </t>
+        </t>
+    </template>
+
+    <!-- ================================================================
+         Material Rent  (non-zero lines only)
+         ================================================================ -->
+    <template id="report_material_rent_new">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="o">
+                <t t-set="report_print_type" t-value="'material_rent'"/>
+                <t t-call="hksf_rental.report_material_rent_header">
+                    <t t-call="hksf_rental.report_material_rent_document"/>
+                </t>
+            </t>
+        </t>
+    </template>
+
+</odoo>

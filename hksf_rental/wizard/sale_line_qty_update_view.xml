@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_sale_line_qty_update_wizard_form" model="ir.ui.view">
+        <field name="name">sale.line.qty.update.wizard.form</field>
+        <field name="model">sale.line.qty.update.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Update Ordered Quantities">
+                <group>
+                    <field name="sale_order_id"/>
+                </group>
+                <separator string="Lines"/>
+                <field name="line_ids">
+                    <list editable="bottom">
+                        <field name="product_id"/>
+                        <field name="current_qty"/>
+                        <field name="delivered_qty"/>
+                        <field name="new_qty"/>
+                    </list>
+                </field>
+                <footer>
+                    <button name="action_update_quantities" string="Update"
+                            type="object" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

@@ -1,0 +1,249 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Delivery Invoice Wizard action (defined BEFORE the view so the
+         header button can reference it by xml id) -->
+    <record id="action_hksf_delivery_invoice_wizard" model="ir.actions.act_window">
+        <field name="name">Create Rental Invoice</field>
+        <field name="res_model">hksf.delivery.invoice.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="binding_model_id" ref="sale.model_sale_order"/>
+        <field name="binding_view_types">form</field>
+    </record>
+
+    <!-- ================================================================
+         Sale Order Form — rental fields (from hksf_rental)
+         Odoo 19: converted to direct attributes and list views
+         ================================================================ -->
+    <record id="view_sale_order_form_hksf_rental" model="ir.ui.view">
+        <field name="name">sale.order.form.hksf.rental</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+
+            <!-- Header buttons: Create Rental Invoice + Create Collection (rental orders) -->
+            <xpath expr="//header" position="inside">
+                <button name="%(action_hksf_delivery_invoice_wizard)d"
+                        string="Create Rental Invoice"
+                        type="action"
+                        class="btn-primary"
+                        invisible="custom_sale_type != 'rent' or state not in ('sale', 'done')"/>
+                <button name="%(action_collection_return_wizard)d"
+                        string="Create Collection"
+                        type="action"
+                        class="btn-primary"
+                        invisible="custom_sale_type != 'rent' or state not in ('sale', 'done')"/>
+            </xpath>
+
+            <!-- Smart button: Invoices linked to this order (wizard + standard) -->
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="action_view_delivery_invoice"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-pencil-square-o"
+                        invisible="custom_sale_type != 'rent'">
+                    <field name="delivery_invoice_count" widget="statinfo" string="Invoices"/>
+                </button>
+                <button name="action_view_incoming_shipment"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-truck"
+                        invisible="custom_sale_type != 'rent'">
+                    <field name="incoming_shipment_count" widget="statinfo" string="Collections"/>
+                </button>
+            </xpath>
+
+            <!-- Sale Type + Subject after partner_shipping_id -->
+            <xpath expr="//field[@name='partner_shipping_id']" position="after">
+                <field name="custom_sale_type"/>
+                <field name="charge_type"
+                       invisible="custom_sale_type != 'rent'"/>
+                <field name="minimum_charge_method"
+                       invisible="custom_sale_type != 'rent'"/>
+                <field name="is_manual_invoice"
+                       invisible="custom_sale_type != 'rent'"/>
+                <field name="subject_line"/>
+            </xpath>
+
+            <!-- Extra quotation fields after payment_term_id -->
+            <xpath expr="//field[@name='payment_term_id']" position="after">
+                <field name="subject_description"/>
+                <field name="grand_total_label"/>
+                <field name="custom_chop_and_sign"/>
+                <field name="body_font_size"/>
+                <field name="total_pages"/>
+            </xpath>
+
+            <!-- Salesperson signature after picking_policy -->
+            <xpath expr="//field[@name='picking_policy']" position="after">
+                <field name="sale_person_signature"/>
+            </xpath>
+
+            <!-- Order line list: add line_type before product_id -->
+            <xpath expr="//list/field[@name='product_id']" position="before">
+                <field name="line_type" optional="show"/>
+            </xpath>
+
+            <!-- Order line list: add rental period fields after product_id.
+                 optional="show/hide" makes every column toggleable from the
+                 column-settings (gear) menu on the order lines list. -->
+            <xpath expr="//list/field[@name='product_id']" position="after">
+                <field name="start_date" optional="hide"
+                       column_invisible="parent.custom_sale_type != 'rent'"/>
+                <field name="end_date" optional="hide"
+                       column_invisible="parent.custom_sale_type != 'rent'"/>
+                <field name="month" optional="hide"
+                       column_invisible="parent.custom_sale_type != 'rent' or parent.is_manual_invoice"/>
+                <!-- Manual Invoice columns (Odoo 11 manual_customer_invoice) -->
+                <field name="custom_days" optional="show"
+                       column_invisible="not parent.is_manual_invoice"/>
+                <field name="custom_month" optional="show"
+                       column_invisible="not parent.is_manual_invoice"/>
+                <button name="%(action_manual_month_update_wizard)d"
+                        string="Select Days"
+                        type="action"
+                        icon="fa-pencil-square-o"
+                        column_invisible="not parent.is_manual_invoice"
+                        invisible="parent.state not in ('draft', 'sent')"/>
+            </xpath>
+
+            <!-- Order line list: weight / volume after product_uom_qty.
+                 Unit columns => Wt / Vol; subtotal columns => Sub. Wt / Sub. Vol.
+                 All toggleable from the column-settings (gear) menu. -->
+            <xpath expr="//list/field[@name='product_uom_qty']" position="after">
+                <field name="weight" string="Wt" optional="hide"/>
+                <field name="subtotal_weight" string="Sub. Wt" optional="hide"/>
+                <field name="volume" string="Vol" optional="hide"/>
+                <field name="subtotal_volume" string="Sub. Vol" optional="hide"/>
+            </xpath>
+
+            <!-- Order line form: add rental fields after product_id in form -->
+            <xpath expr="//field[@name='product_id']" position="after">
+                <field name="line_type"/>
+                <field name="start_date"
+                       invisible="line_type == 'sale'"/>
+                <field name="end_date"
+                       invisible="line_type == 'sale'"/>
+                <field name="month"
+                       invisible="line_type == 'sale'"/>
+                <field name="weight"/>
+                <field name="subtotal_weight"/>
+                <field name="volume"/>
+                <field name="subtotal_volume"/>
+            </xpath>
+
+            <!-- Weight/volume totals panel at order level.
+                 Short labels (Wt / Vol) with the unit shown via the field's
+                 own widget; no extra span (the old span overlapped the value). -->
+            <xpath expr="//group[hasclass('oe_subtotal_footer')]" position="after">
+                <group string="Weight / Volume Totals">
+                    <field name="total_weight" string="Wt" widget="float"
+                           options="{'digits': [16, 2]}"/>
+                    <field name="total_volume" string="Vol" widget="float"
+                           options="{'digits': [16, 2]}"/>
+                </group>
+            </xpath>
+
+        </field>
+    </record>
+
+    <!-- ================================================================
+         Sale Order Form — delivery/invoicing fields (from hksf_delivery_invoice)
+         ================================================================ -->
+    <record id="view_sale_order_form_hksf_delivery" model="ir.ui.view">
+        <field name="name">sale.order.form.hksf.delivery</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+
+            <!-- Pricelists in Other Info tab. The Reload button sits on the
+                 right of the pricelist fields (two side-by-side sub-groups):
+                 prices are static to the SO and this re-pulls them on demand. -->
+            <xpath expr="//page[@name='other_information']" position="inside">
+                <group string="Rental Pricelists">
+                    <group>
+                        <field name="repair_pricelist_id"/>
+                        <field name="lost_pricelist_id"/>
+                    </group>
+                    <group>
+                        <button name="action_reload_rd_prices"
+                                string="Reload Price Lists"
+                                type="object"
+                                class="btn-secondary"/>
+                    </group>
+                </group>
+            </xpath>
+
+            <!-- New notebook pages -->
+            <xpath expr="//notebook" position="inside">
+
+                <page string="Outstanding Products" name="product_outstanding">
+                    <button name="action_compute_outstanding_products"
+                            string="Compute Outstanding"
+                            type="object"
+                            class="btn-secondary mb8"/>
+                    <!-- Lost is driven from the Outstanding shortfall: this
+                         recomputes the lost lines from deliveries and raises
+                         the lost invoice in one click. (replaces the retired
+                         Lost / Damaged Materials tab) -->
+                    <button name="action_outstanding_create_lost_invoice"
+                            string="Create Lost Material Invoice"
+                            type="object"
+                            class="btn-primary mb8"
+                            confirm="This will recompute lost materials from deliveries and create a lost invoice. Continue?"/>
+                    <!-- Qty columns forced to 0 decimals on THIS page only via
+                         options digits=[16,0] (does not change global UoM
+                         precision). 'Balance' = delivered - collected. Unit
+                         Price now pulls the stamped lost price (see model). -->
+                    <field name="product_outstanding_ids">
+                        <list>
+                            <field name="product_id"/>
+                            <field name="uom_id" string="UoM"/>
+                            <field name="delivered_qty"
+                                   options="{'digits': [16, 0]}"/>
+                            <field name="collected_qty"
+                                   options="{'digits': [16, 0]}"/>
+                            <field name="lost_products_qty" string="Balance"
+                                   options="{'digits': [16, 0]}"/>
+                            <field name="price_unit"
+                                   options="{'digits': [16, 2]}"/>
+                        </list>
+                    </field>
+                </page>
+
+                <!-- NOTE: the "Lost / Damaged Materials" page was retired in
+                     v19.0.1.27.0. The collection.repair.damage model, the
+                     collection_lost_material_ids field, action_compute_lost_product
+                     and action_create_lost_product_invoice are ALL KEPT; only the
+                     UI entry point moved to the Outstanding Products page above.
+                     No data is dropped. -->
+
+            </xpath>
+
+        </field>
+    </record>
+
+    <!-- Repair / Damage Invoice Wizard action from sale order.
+         (Lost material is invoiced from the Outstanding Products page; this
+         wizard now covers Repair + Damage only — see v19.0.1.27.6.) -->
+    <record id="action_damage_lost_invoice_wizard" model="ir.actions.act_window">
+        <field name="name">Create Repair / Damage Invoice</field>
+        <field name="res_model">damage.lost.invoice.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="binding_model_id" ref="sale.model_sale_order"/>
+        <field name="binding_view_types">form</field>
+    </record>
+
+    <!-- Sale Line Qty Update Wizard action -->
+    <record id="action_sale_line_qty_update_wizard" model="ir.actions.act_window">
+        <field name="name">Update Ordered Quantities</field>
+        <field name="res_model">sale.line.qty.update.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="binding_model_id" ref="sale.model_sale_order"/>
+        <field name="binding_view_types">form</field>
+    </record>
+
+</odoo>

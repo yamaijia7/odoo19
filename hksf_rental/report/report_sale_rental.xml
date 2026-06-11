@@ -1,0 +1,413 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- ============================================================
+             Document body template (self-contained)
+             Header + body + footer are inlined in ONE template so the
+             local 'doc' variable is in a single scope. v19 QWeb does NOT
+             propagate a caller's local t-set 'doc' into a separately
+             t-call'ed layout template whose header runs before t-raw="0".
+             ============================================================ -->
+        <template id="report_sale_rental_document">
+            <t t-set="company" t-value="doc.company_id"/>
+            <!-- Currency: prefer the order's pricelist currency, fall back to the
+                 order/company currency so the monetary widget always has a
+                 singleton currency (pricelist may be empty in v19). -->
+            <t t-set="cur" t-value="doc.pricelist_id.currency_id or doc.currency_id or company.currency_id"/>
+            <!-- Proforma flag driven purely by context (avoids NameError in v19) -->
+            <t t-set="is_pro_forma" t-value="env.context.get('proforma', False)"/>
+            <div class="header">
+                <!-- Custom company header logo (full width) -->
+                <t t-if="company.custom_header_logo">
+                    <img t-att-src="image_data_uri(company.custom_header_logo)"
+                         style="width:100%;"/>
+                </t>
+                <h3 class="text-center">
+                    <strong>
+                        <t t-if="not is_pro_forma">
+                            <span t-if="doc.state not in ['draft','sent']">Order</span>
+                            <span t-if="doc.state in ['draft','sent']">Quotation</span>
+                        </t>
+                        <t t-if="is_pro_forma">
+                            <span>Pro-Forma Invoice #</span>
+                        </t>
+                    </strong>
+                </h3>
+                <h4 class="text-center col-12">
+                    <div class="row" style="border-bottom:2px solid black;"/>
+                </h4>
+                <br/>
+
+                <!-- Reference / Date / Client / Site table -->
+                <div class="col-12">
+                    <table class="table table-condensed"
+                           style="margin-bottom:1px !important;">
+                        <tr>
+                            <td class="text-end" width="11%"
+                                style="border:none; padding:1px 2px;">
+                                <strong>Our Ref:</strong>
+                            </td>
+                            <td width="39%" style="border:none; padding:1px 2px;">
+                                <span t-field="doc.name"/>
+                            </td>
+                            <td class="text-end" width="14%"
+                                style="border:none; padding:1px 2px;">
+                                <strong>Date:</strong>
+                            </td>
+                            <td width="36%" style="border:none; padding:1px 2px;">
+                                <span t-field="doc.date_order"
+                                      t-options='{"format": "d MMMM y"}'/>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="text-end" style="border:none; padding:1px 2px;">
+                                <strong>Client:</strong>
+                            </td>
+                            <td style="border:none; padding:1px 2px;">
+                                <t t-if="doc.partner_id.parent_id">
+                                    <strong>
+                                        <span t-field="doc.partner_id.parent_id.name"/>
+                                    </strong>
+                                </t>
+                                <t t-else="">
+                                    <strong><span t-field="doc.partner_id.name"/></strong>
+                                </t>
+                            </td>
+                            <td class="text-end" style="border:none; padding:1px 2px;">
+                                <strong>Site:</strong>
+                            </td>
+                            <td style="border:none; padding:1px 2px;">
+                                <t t-if="doc.partner_shipping_id.street">
+                                    <span t-field="doc.partner_shipping_id.street"/><br/>
+                                </t>
+                                <t t-if="doc.partner_shipping_id.street2">
+                                    <span t-field="doc.partner_shipping_id.street2"/><br/>
+                                </t>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="text-end" style="border:none; padding:1px 2px;">
+                                <strong>Attn:</strong>
+                            </td>
+                            <td style="border:none; padding:1px 2px;">
+                                <!-- v19: res.partner.title (salutation) model was removed,
+                                     so the O11 'title.shortcut' prefix is dropped. -->
+                                <span t-field="doc.partner_id.name"/>
+                                <!-- v19: res.partner.mobile removed (consolidated into phone). -->
+                                <t t-if="doc.partner_id.phone">
+                                    &amp;nbsp;–&amp;nbsp;<span t-field="doc.partner_id.phone"/>
+                                </t>
+                                <t t-if="doc.partner_id.email">
+                                    <br/><span t-field="doc.partner_id.email"/>
+                                </t>
+                            </td>
+                            <td class="text-end" style="border:none; padding:1px 2px;">
+                                <strong t-if="doc.partner_id.parent_id.phone">
+                                    Office Tel:
+                                </strong><br/>
+                                <strong t-if="doc.partner_id.parent_id.custom_fax">
+                                    Fax:
+                                </strong>
+                            </td>
+                            <td style="border:none; padding:1px 2px;">
+                                <t t-if="doc.partner_id.parent_id.phone">
+                                    <span t-field="doc.partner_id.parent_id.phone"/>
+                                </t><br/>
+                                <t t-if="doc.partner_id.parent_id.custom_fax">
+                                    <span t-field="doc.partner_id.parent_id.custom_fax"/>
+                                </t>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </div><!-- /header -->
+
+            <!-- Page body -->
+            <div class="article">
+                <div class="page hksf-rental-body" t-att-style="'font-size:%spx;' % (doc.body_font_size or '14')">
+                    <!-- Compact line tables + readable (white-on-black) headers.
+                         Scoped to .hksf-rental-body so the header info table is
+                         unaffected. Bootstrap's .table colour cascade overrides an
+                         inline <tr> colour in wkhtmltopdf, so we force white on the
+                         header cells explicitly here. -->
+                    <style>
+                        .hksf-rental-body table.table { margin-bottom:4px; }
+                        .hksf-rental-body table.table td,
+                        .hksf-rental-body table.table th {
+                            padding:1px 4px !important;
+                            line-height:1.1 !important;
+                            vertical-align:middle;
+                        }
+                        .hksf-rental-body table.table thead tr {
+                            background-color:#000000 !important;
+                        }
+                        .hksf-rental-body table.table thead th {
+                            background-color:#000000 !important;
+                            color:#ffffff !important;
+                        }
+                        .hksf-rental-body p { margin:2px 0; }
+                    </style>
+                    <div class="oe_structure"/>
+
+                    <!-- Subject line -->
+                    <t t-if="doc.subject_line">
+                        <div class="row" style="border-bottom:2px solid black;"/>
+                        <br/>
+                        <h4 class="text-center">
+                            <strong>RE : <u><span t-field="doc.subject_line"/></u></strong>
+                        </h4>
+                        <h5 class="text-center">
+                            <strong><span t-field="doc.subject_description"/></strong>
+                        </h5>
+                    </t>
+
+                    <!-- Rental section -->
+                    <t t-set="rental_lines"
+                       t-value="doc.order_line.filtered(lambda l: l.line_type == 'rental')"/>
+                    <t t-if="rental_lines">
+                        <p class="text-center"><strong>Rental</strong></p>
+                        <table class="table table-bordered table-condensed">
+                            <thead>
+                                <tr style="background-color:#000000; color:#ffffff;">
+                                    <th class="text-center">No</th>
+                                    <th class="text-center">Ref</th>
+                                    <th class="text-center">Description</th>
+                                    <th class="text-center">Area/Qty</th>
+                                    <t t-if="doc.custom_sale_type == 'rent'">
+                                        <th class="text-center"
+                                            t-if="doc.charge_type == 'monthly'">Hire/Mth/Pce</th>
+                                        <th class="text-center"
+                                            t-if="doc.charge_type == 'monthly'">Mths</th>
+                                        <th class="text-center"
+                                            t-if="doc.charge_type == 'weekly'">Hire/Week/Pce</th>
+                                        <th class="text-center"
+                                            t-if="doc.charge_type == 'weekly'">Weeks</th>
+                                        <th class="text-center">Hire Amount</th>
+                                    </t>
+                                    <t t-else="">
+                                        <th class="text-center">Unit Rate</th>
+                                        <th class="text-center">Amount</th>
+                                    </t>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-set="idx" t-value="1"/>
+                                <t t-set="total_rent" t-value="0"/>
+                                <t t-foreach="rental_lines" t-as="line">
+                                    <tr>
+                                        <td class="text-end"><span t-out="idx"/></td>
+                                        <td><span t-field="line.product_id.default_code"/></td>
+                                        <td><span t-field="line.name"/></td>
+                                        <td class="text-end">
+                                            <t t-if="doc.custom_sale_type == 'sale'">
+                                                <span t-field="line.product_uom_qty"/>
+                                            </t>
+                                        </td>
+                                        <td class="text-end">
+                                            <t t-if="line.price_unit">
+                                                <span t-field="line.price_unit"
+                                                      t-options='{"widget":"monetary","display_currency":cur}'/>/<span t-field="line.product_uom_id"/>
+                                            </t>
+                                        </td>
+                                        <td t-if="doc.custom_sale_type == 'rent'"
+                                            class="text-end">
+                                            <span t-field="line.month"/>
+                                        </td>
+                                        <td class="text-end">
+                                            <span t-if="line.price_subtotal"
+                                                  t-field="line.price_subtotal"
+                                                  t-options='{"widget":"monetary","display_currency":cur}'/>
+                                        </td>
+                                    </tr>
+                                    <t t-set="idx" t-value="idx + 1"/>
+                                    <t t-set="total_rent" t-value="total_rent + line.price_subtotal"/>
+                                </t>
+                                <!-- Rental subtotal row -->
+                                <tr>
+                                    <td class="text-end"
+                                        t-att-colspan="doc.custom_sale_type == 'sale' and 5 or 6">
+                                        <strong>Total Rent:</strong>
+                                    </td>
+                                    <td class="text-end">
+                                        <span t-out="total_rent"
+                                              t-options='{"widget":"monetary","display_currency":cur}'/>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </t>
+
+                    <!-- Sale section -->
+                    <t t-set="sale_lines"
+                       t-value="doc.order_line.filtered(lambda l: l.line_type == 'sale')"/>
+                    <t t-if="sale_lines">
+                        <p class="text-center"><strong>Sale</strong></p>
+                        <table class="table table-bordered table-condensed">
+                            <thead>
+                                <tr style="background-color:#000000; color:#ffffff;">
+                                    <th class="text-center">No</th>
+                                    <th class="text-center">Ref</th>
+                                    <th class="text-center">Description</th>
+                                    <th class="text-center">Area/Qty</th>
+                                    <th class="text-center">Unit Rate</th>
+                                    <th class="text-center">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-set="idx2" t-value="1"/>
+                                <t t-set="total_sale" t-value="0"/>
+                                <t t-foreach="sale_lines" t-as="line">
+                                    <tr>
+                                        <td class="text-end"><span t-out="idx2"/></td>
+                                        <td><span t-field="line.product_id.default_code"/></td>
+                                        <td><span t-field="line.name"/></td>
+                                        <td class="text-end">
+                                            <span t-field="line.product_uom_qty"/>
+                                        </td>
+                                        <td class="text-end">
+                                            <t t-if="line.price_unit">
+                                                <span t-field="line.price_unit"
+                                                      t-options='{"widget":"monetary","display_currency":cur}'/>/<span t-field="line.product_uom_id"/>
+                                            </t>
+                                        </td>
+                                        <td class="text-end">
+                                            <span t-if="line.price_subtotal"
+                                                  t-field="line.price_subtotal"
+                                                  t-options='{"widget":"monetary","display_currency":cur}'/>
+                                        </td>
+                                    </tr>
+                                    <t t-set="idx2" t-value="idx2 + 1"/>
+                                    <t t-set="total_sale" t-value="total_sale + line.price_subtotal"/>
+                                </t>
+                                <tr>
+                                    <td class="text-end" colspan="5">
+                                        <strong>Total Sales:</strong>
+                                    </td>
+                                    <td class="text-end">
+                                        <span t-out="total_sale"
+                                              t-options='{"widget":"monetary","display_currency":cur}'/>
+                                    </td>
+                                </tr>
+                                <!-- Grand total only shown here when sale section exists -->
+                                <tr>
+                                    <td class="text-end" colspan="5">
+                                        <strong>
+                                            <span t-if="doc.grand_total_label"
+                                                  t-out="doc.grand_total_label"/>
+                                            <span t-else="">Grand Total</span>:
+                                        </strong>
+                                    </td>
+                                    <td class="text-end">
+                                        <span t-field="doc.amount_total"
+                                              t-options='{"widget":"monetary","display_currency":cur}'/>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </t>
+
+                    <!-- Grand total row when no sale section -->
+                    <t t-if="rental_lines and not sale_lines">
+                        <table class="table table-bordered table-condensed">
+                            <tbody>
+                                <tr>
+                                    <td class="text-end" colspan="6">
+                                        <strong>
+                                            <span t-if="doc.grand_total_label"
+                                                  t-out="doc.grand_total_label"/>
+                                            <span t-else="">Grand Total</span>:
+                                        </strong>
+                                    </td>
+                                    <td class="text-end">
+                                        <span t-field="doc.amount_total"
+                                              t-options='{"widget":"monetary","display_currency":cur}'/>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </t>
+
+                    <!-- Remarks / Notes -->
+                    <div class="row mt-2">
+                        <div class="col-11 text-start">
+                            <strong>Remarks:</strong><br/>
+                            <span t-field="doc.note"/>
+                        </div>
+                    </div>
+
+                    <div class="oe_structure"/>
+                </div>
+            </div><!-- /article -->
+
+            <!-- Footer: chop-and-sign + company stamp + salesperson signature -->
+            <div class="footer">
+                <table class="table" style="margin-bottom:0;">
+                    <tr>
+                        <td width="35%" style="border:none; padding-bottom:0;"/>
+                        <td width="30%" style="border:none; vertical-align:middle; padding-bottom:0;" rowspan="2">
+                            <t t-if="doc.custom_chop_and_sign and company.custom_chop_and_sign">
+                                <img t-att-src="image_data_uri(company.custom_chop_and_sign)"
+                                     style="max-width:45mm;"/>
+                            </t>
+                        </td>
+                        <td width="35%" class="text-center" style="border:none; padding-bottom:0;">
+                            <t t-if="company.company_stamp">
+                                <img t-att-src="image_data_uri(company.company_stamp)"
+                                     style="max-width:45mm;"/>
+                            </t>
+                            <t t-set="sig_user" t-value="doc.sale_person_signature or doc.user_id"/>
+                            <t t-if="sig_user.signature_custom">
+                                <br/>
+                                <img t-att-src="image_data_uri(sig_user.signature_custom)"
+                                     style="max-height:4cm; max-width:4cm;"/>
+                            </t>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td width="35%" class="text-center" style="border:none; padding-top:0;">
+                            <strong>____________________________________</strong><br/>
+                            <t t-if="doc.partner_id.parent_id">
+                                <strong><span t-field="doc.partner_id.parent_id.name"/></strong>
+                            </t>
+                            <t t-else="">
+                                <strong><span t-field="doc.partner_id.name"/></strong>
+                            </t>
+                        </td>
+                        <td width="35%" class="text-center" style="border:none; padding-top:0;">
+                            <strong>____________________________________</strong><br/>
+                            <t t-if="doc.company_id.name">
+                                <strong><span t-field="doc.company_id.name"/></strong><br/>
+                            </t>
+                            <t t-set="sig_user2" t-value="doc.sale_person_signature or doc.user_id"/>
+                            <span t-field="sig_user2.name"/>
+                            <t t-if="sig_user2.phone">
+                                <br/><span t-field="sig_user2.phone"/>
+                            </t>
+                            <t t-if="sig_user2.email">
+                                <br/><span t-field="sig_user2.email"/>
+                            </t>
+                        </td>
+                    </tr>
+                </table>
+                <div class="text-center text-muted" style="font-size:9px;">
+                    Page: <span class="page"/> /
+                    <span t-if="doc.total_pages" t-out="doc.total_pages"/>
+                    <span t-else="" class="topage"/>
+                </div>
+            </div><!-- /footer -->
+        </template>
+
+        <!-- ============================================================
+             Wrapper iterating over docs
+             ============================================================ -->
+        <template id="report_sale_rental">
+            <t t-call="web.html_container">
+                <t t-foreach="docs" t-as="doc">
+                    <t t-call="hksf_rental.report_sale_rental_document"/>
+                </t>
+            </t>
+        </template>
+
+    </data>
+</odoo>

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_damage_lost_invoice_wizard_form" model="ir.ui.view">
+        <field name="name">damage.lost.invoice.wizard.form</field>
+        <field name="model">damage.lost.invoice.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Repair / Damage Invoice">
+                <group>
+                    <field name="sale_order_id"/>
+                    <!-- Only one invoice type remains (Repair + Damage); kept
+                         in the model for routing but hidden in the UI. Lost
+                         material is invoiced from the Outstanding page. -->
+                    <field name="invoice_type" invisible="1"/>
+                    <field name="journal_id"/>
+                </group>
+                <separator string="Lines"/>
+                <field name="line_ids">
+                    <list editable="bottom">
+                        <field name="include"/>
+                        <field name="line_type"/>
+                        <field name="product_id"/>
+                        <field name="name"/>
+                        <field name="qty"/>
+                        <field name="price_unit"/>
+                    </list>
+                </field>
+                <footer>
+                    <button name="action_create_invoice" string="Create Invoice"
+                            type="object" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

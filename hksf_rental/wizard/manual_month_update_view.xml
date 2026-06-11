@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_manual_month_update_wizard_form" model="ir.ui.view">
+        <field name="name">manual.month.update.wizard.form</field>
+        <field name="model">manual.month.update.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Select Days">
+                <group>
+                    <field name="days_count"/>
+                </group>
+                <footer>
+                    <button name="action_update_days"
+                            string="Update"
+                            type="object"
+                            class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_manual_month_update_wizard" model="ir.actions.act_window">
+        <field name="name">Select Days</field>
+        <field name="res_model">manual.month.update.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

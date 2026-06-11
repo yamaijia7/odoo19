@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_transport_charge_list" model="ir.ui.view">
+        <field name="name">transport.charge.list</field>
+        <field name="model">transport.charge</field>
+        <field name="arch" type="xml">
+            <list string="Transport Charges" editable="bottom">
+                <field name="picking_id"/>
+                <field name="product_id"/>
+                <field name="name"/>
+                <field name="product_uom_qty"/>
+                <field name="product_uom"/>
+                <field name="price_unit"/>
+                <field name="invoice_id"/>
+                <field name="is_create_transport_invoice" column_invisible="True"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_transport_charge_form" model="ir.ui.view">
+        <field name="name">transport.charge.form</field>
+        <field name="model">transport.charge</field>
+        <field name="arch" type="xml">
+            <form string="Transport Charge">
+                <group>
+                    <field name="picking_id"/>
+                    <field name="product_id"/>
+                    <field name="name"/>
+                    <field name="product_uom_qty"/>
+                    <field name="product_uom"/>
+                    <field name="price_unit"/>
+                    <field name="invoice_id"/>
+                    <field name="is_create_transport_invoice" invisible="1"/>
+                </group>
+            </form>
+        </field>
+    </record>
+
+</odoo>

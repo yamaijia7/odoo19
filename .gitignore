@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.swp
+*.log
+odoo.conf
+*.conf
+*.sql
+*.sql.gz
+*.dump
+.env
+.idea/
+.vscode/
