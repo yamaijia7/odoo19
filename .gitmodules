@@ -1,0 +1,20 @@
+[submodule "odoo-custom-addons/oca/account-financial-reporting"]
+	path = odoo-custom-addons/oca/account-financial-reporting
+	url = https://github.com/OCA/account-financial-reporting.git
+	branch = 19.0
+[submodule "odoo-custom-addons/oca/account-reconcile"]
+	path = odoo-custom-addons/oca/account-reconcile
+	url = https://github.com/OCA/account-reconcile.git
+	branch = 19.0
+[submodule "odoo-custom-addons/oca/bank-statement-import"]
+	path = odoo-custom-addons/oca/bank-statement-import
+	url = https://github.com/OCA/bank-statement-import.git
+	branch = 19.0
+[submodule "odoo-custom-addons/oca/account-financial-tools"]
+	path = odoo-custom-addons/oca/account-financial-tools
+	url = https://github.com/OCA/account-financial-tools.git
+	branch = 19.0
+[submodule "odoo-custom-addons/oca/sale-workflow"]
+	path = odoo-custom-addons/oca/sale-workflow
+	url = https://github.com/OCA/sale-workflow.git
+	branch = 19.0
