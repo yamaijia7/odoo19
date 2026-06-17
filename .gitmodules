@@ -18,3 +18,7 @@
 	path = odoo-custom-addons/oca/sale-workflow
 	url = https://github.com/OCA/sale-workflow.git
 	branch = 19.0
+[submodule "odoo-custom-addons/oca/payroll"]
+	path = odoo-custom-addons/oca/payroll
+	url = https://github.com/OCA/payroll.git
+	branch = 19.0
