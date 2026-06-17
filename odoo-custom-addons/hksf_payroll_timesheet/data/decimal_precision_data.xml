@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="decimal_payroll_rate" model="decimal.precision">
+            <field name="name">Payroll Rate</field>
+            <field name="digits">4</field>
+        </record>
+    </data>
+</odoo>

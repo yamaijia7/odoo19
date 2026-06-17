@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_hr_contract_payroll_timesheet_form" model="ir.ui.view">
+        <field name="name">hr.contract.payroll.timesheet.form</field>
+        <field name="model">hr.contract</field>
+        <field name="inherit_id" ref="payroll.hr_contract_view_form"/>
+        <field name="arch" type="xml">
+            <notebook position="inside">
+                <page string="Work Type Rates" name="work_type_rates">
+                    <group>
+                        <button name="action_compute_worktype_rates"
+                                string="Auto-compute Rates from Wage"
+                                type="object"
+                                class="btn-secondary"
+                                help="Fills daily_rate and rate using DR Factor and R Factor."/>
+                    </group>
+                    <field name="work_type_ids" nolabel="1">
+                        <list editable="bottom">
+                            <field name="work_type_id"/>
+                            <field name="dr_factor"/>
+                            <field name="r_factor"/>
+                            <field name="daily_rate"/>
+                            <field name="rate"/>
+                        </list>
+                    </field>
+                </page>
+            </notebook>
+        </field>
+    </record>
+
+</odoo>

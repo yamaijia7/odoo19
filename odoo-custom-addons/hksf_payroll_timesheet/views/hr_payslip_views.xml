@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_hr_payslip_timesheet_form" model="ir.ui.view">
+        <field name="name">hr.payslip.timesheet.form</field>
+        <field name="model">hr.payslip</field>
+        <field name="inherit_id" ref="payroll.view_hr_payslip_form"/>
+        <field name="arch" type="xml">
+
+            <div name="button_box" position="inside">
+                <button name="action_view_timesheet_lines"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-clock-o"
+                        invisible="timesheet_line_count == 0">
+                    <field name="timesheet_line_count" widget="statinfo"
+                           string="Timesheets"/>
+                </button>
+            </div>
+
+            <notebook position="inside">
+                <page string="Timesheet Lines" name="timesheet_lines">
+                    <field name="timesheet_ids" readonly="1">
+                        <list>
+                            <field name="date"/>
+                            <field name="work_type_id"/>
+                            <field name="days"/>
+                            <field name="hour_days"/>
+                            <field name="unit_amount" string="Total Hours"/>
+                            <field name="is_payroll_paid"/>
+                        </list>
+                    </field>
+                </page>
+                <page string="Work Type Summary" name="work_type_summary">
+                    <field name="work_type_ids" readonly="1">
+                        <list>
+                            <field name="work_type_id"/>
+                            <field name="total_days"/>
+                            <field name="total_hour"/>
+                        </list>
+                    </field>
+                </page>
+            </notebook>
+
+        </field>
+    </record>
+
+</odoo>
