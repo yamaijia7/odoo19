@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <!-- FIX audit #9: attrs={} removed; inline invisible used (Odoo 19) -->
+  <!-- FIX audit #10: group string= replaced with separator -->
+  <record id="view_hkssl_ir56b_wizard_form" model="ir.ui.view">
+    <field name="name">hkssl.ir56b.wizard.form</field>
+    <field name="model">hkssl.ir56b.wizard</field>
+    <field name="arch" type="xml">
+      <form string="IR56B Annual Tax Report">
+        <sheet>
+          <group>
+            <separator string="Tax Period"/>
+            <field name="tax_year_start"/><field name="tax_year_end"/>
+          </group>
+          <group>
+            <separator string="Filter (optional)"/>
+            <field name="employee_ids" widget="many2many_tags"/>
+          </group>
+          <notebook invisible="state == 'draft'">
+            <page string="IR56B Lines">
+              <field name="line_ids" readonly="1">
+                <list>
+                  <field name="employee_id"/>
+                  <field name="identification_id"/>
+                  <field name="total_remuneration"/>
+                  <field name="mpf_employee"/>
+                  <field name="mpf_employer"/>
+                </list>
+              </field>
+            </page>
+          </notebook>
+        </sheet>
+        <footer>
+          <button name="action_compute" string="Compute" type="object"
+                  class="btn-primary" invisible="state == 'computed'"/>
+          <button name="action_print" string="Print PDF" type="object"
+                  class="btn-success" invisible="state == 'draft'"/>
+          <button string="Close" class="btn-default" special="cancel"/>
+        </footer>
+      </form>
+    </field>
+  </record>
+  <record id="action_hkssl_ir56b_wizard" model="ir.actions.act_window">
+    <field name="name">IR56B Annual Tax Report</field>
+    <field name="res_model">hkssl.ir56b.wizard</field>
+    <field name="view_mode">form</field>
+    <field name="target">new</field>
+  </record>
+</odoo>

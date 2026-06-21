@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <record id="hr_salary_rule_form_hkssl" model="ir.ui.view">
+    <field name="name">hr.salary.rule.form.hkssl</field>
+    <field name="model">hr.salary.rule</field>
+    <field name="inherit_id" ref="payroll.hr_salary_rule_view_form"/>
+    <field name="arch" type="xml">
+      <xpath expr="//field[@name='appears_on_payslip']" position="after">
+        <field name="rule_decimal_precision"
+               help="0 = integer rounding for MPF statutory amounts. -1 = no rounding."/>
+      </xpath>
+    </field>
+  </record>
+</odoo>

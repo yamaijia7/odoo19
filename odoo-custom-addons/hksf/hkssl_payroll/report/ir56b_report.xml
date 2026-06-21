@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <report id="action_report_ir56b" model="hkssl.ir56b.wizard"
+    string="IR56B Annual Tax Report" report_type="qweb-pdf"
+    name="hkssl_payroll.report_ir56b" file="hkssl_payroll.report_ir56b"
+    print_report_name="'IR56B %s-%s' % (object.tax_year_start, object.tax_year_end)"/>
+  <template id="report_ir56b">
+    <t t-call="web.html_container">
+      <t t-foreach="docs" t-as="wizard">
+        <t t-call="web.external_layout">
+          <div class="page">
+            <h2>IR56B — Employer's Return of Remuneration and Pensions</h2>
+            <p>Tax Year: <strong><span t-esc="wizard.tax_year_start"/></strong> to <strong><span t-esc="wizard.tax_year_end"/></strong></p>
+            <table class="table table-condensed table-bordered mt16">
+              <thead><tr><th>#</th><th>Employee</th><th>HKID</th>
+                <th class="text-right">Total Remuneration (HKD)</th>
+                <th class="text-right">MPF Employee (HKD)</th>
+                <th class="text-right">MPF Employer (HKD)</th></tr></thead>
+              <tbody>
+                <tr t-foreach="wizard.line_ids" t-as="line">
+                  <td><span t-esc="line_index + 1"/></td>
+                  <td><span t-field="line.employee_id"/></td>
+                  <td><span t-field="line.identification_id"/></td>
+                  <td class="text-right"><span t-esc="line.total_remuneration"/></td>
+                  <td class="text-right"><span t-esc="line.mpf_employee"/></td>
+                  <td class="text-right"><span t-esc="line.mpf_employer"/></td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="mt32 text-right"><strong>Authorised Signature &amp; Company Chop</strong></p>
+          </div>
+        </t>
+      </t>
+    </t>
+  </template>
+</odoo>

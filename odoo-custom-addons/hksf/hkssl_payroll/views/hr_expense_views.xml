@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <!-- FIX audit #1: hr.expense.sheet view removed — model does not exist in Odoo 19 -->
+  <!-- FIX audit #9: attrs={} replaced with inline invisible/readonly (Odoo 19) -->
+  <record id="hr_expense_form_hkssl" model="ir.ui.view">
+    <field name="name">hr.expense.form.hkssl</field>
+    <field name="model">hr.expense</field>
+    <field name="inherit_id" ref="hr_expense.hr_expense_view_form"/>
+    <field name="arch" type="xml">
+      <xpath expr="//field[@name='employee_id']" position="after">
+        <field name="include_salary"
+               invisible="payment_mode == 'company_account'"
+               readonly="state != 'draft'"/>
+        <field name="emp_contribution" invisible="1"/>
+        <field name="company_contribution" invisible="1"/>
+      </xpath>
+    </field>
+  </record>
+</odoo>

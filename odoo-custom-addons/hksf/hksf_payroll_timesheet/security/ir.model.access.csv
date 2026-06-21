@@ -1,7 +1,0 @@
-id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_timesheet_work_type_manager,timesheet.work.type manager,model_timesheet_work_type,payroll.group_payroll_manager,1,1,1,1
-access_timesheet_work_type_user,timesheet.work.type user,model_timesheet_work_type,payroll.group_payroll_user,1,0,0,0
-access_contract_worktype_manager,contract.worktype manager,model_contract_worktype,payroll.group_payroll_manager,1,1,1,1
-access_contract_worktype_user,contract.worktype user,model_contract_worktype,payroll.group_payroll_user,1,0,0,0
-access_payslip_totalhour_manager,payslip.totalhour manager,model_payslip_totalhour,payroll.group_payroll_manager,1,1,1,1
-access_payslip_totalhour_user,payslip.totalhour user,model_payslip_totalhour,payroll.group_payroll_user,1,0,0,0

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-
-    <record id="view_hr_contract_payroll_timesheet_form" model="ir.ui.view">
-        <field name="name">hr.contract.payroll.timesheet.form</field>
-        <field name="model">hr.contract</field>
+    <!-- BUG1 FIX: inherits hr.version form (OCA payroll 19.0), not hr.contract -->
+    <record id="view_hr_version_payroll_timesheet_form" model="ir.ui.view">
+        <field name="name">hr.version.payroll.timesheet.form</field>
+        <field name="model">hr.version</field>
         <field name="inherit_id" ref="payroll.hr_contract_view_form"/>
         <field name="arch" type="xml">
             <notebook position="inside">
@@ -11,9 +11,7 @@
                     <group>
                         <button name="action_compute_worktype_rates"
                                 string="Auto-compute Rates from Wage"
-                                type="object"
-                                class="btn-secondary"
-                                help="Fills daily_rate and rate using DR Factor and R Factor."/>
+                                type="object" class="btn-secondary"/>
                     </group>
                     <field name="work_type_ids" nolabel="1">
                         <list editable="bottom">
@@ -28,5 +26,4 @@
             </notebook>
         </field>
     </record>
-
 </odoo>

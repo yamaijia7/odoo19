@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <menuitem id="menu_hkssl_work_types" name="Work Types"
+    parent="payroll.payroll_menu_configuration"
+    action="hkssl_payroll.action_timesheet_work_type"
+    sequence="50" groups="payroll.group_payroll_manager"/>
+  <menuitem id="menu_hkssl_industry_scheme" name="Industry Scheme (MPF)"
+    parent="payroll.payroll_menu_configuration"
+    action="hkssl_payroll.action_payroll_industry_scheme"
+    sequence="51" groups="payroll.group_payroll_manager"/>
+  <menuitem id="menu_hkssl_ir56b" name="IR56B Tax Report"
+    parent="payroll.payroll_menu_root"
+    action="hkssl_payroll.action_hkssl_ir56b_wizard"
+    sequence="99" groups="payroll.group_payroll_manager"/>
+</odoo>

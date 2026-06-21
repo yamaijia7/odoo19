@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <data noupdate="1">
+    <record id="work_type_rgl" model="timesheet.work.type">
+      <field name="name">Regular</field><field name="code">RGL</field>
+      <field name="r_factor">8.0</field><field name="dr_factor">26.0</field><field name="sequence">10</field>
+    </record>
+    <record id="work_type_ot" model="timesheet.work.type">
+      <field name="name">Overtime</field><field name="code">OT</field>
+      <field name="r_factor">8.0</field><field name="dr_factor">26.0</field><field name="sequence">20</field>
+    </record>
+    <record id="work_type_ovrn" model="timesheet.work.type">
+      <field name="name">Overnight</field><field name="code">OVRN</field>
+      <field name="r_factor">12.0</field><field name="dr_factor">26.0</field><field name="sequence">30</field>
+    </record>
+  </data>
+</odoo>

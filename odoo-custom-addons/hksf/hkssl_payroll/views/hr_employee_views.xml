@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <record id="hr_employee_form_hkssl" model="ir.ui.view">
+    <field name="name">hr.employee.form.hkssl</field>
+    <field name="model">hr.employee</field>
+    <field name="inherit_id" ref="hr.view_employee_form"/>
+    <field name="arch" type="xml">
+      <xpath expr="//page[@name='hr_settings']//group[1]" position="inside">
+        <field name="mpf_scheme_type"/>
+        <field name="industry_scheme_id"
+               string="MPF / Industry Scheme"
+               options='{"no_create": true}'
+               invisible="mpf_scheme_type != 'industry'"
+               required="mpf_scheme_type == 'industry'"/>
+      </xpath>
+    </field>
+  </record>
+</odoo>

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+<template id="report_hkssl_payslip">
+  <t t-call="web.html_container">
+    <t t-foreach="docs" t-as="o">
+      <t t-call="web.external_layout">
+        <div class="page">
+          <h2>Pay Slip</h2>
+          <!-- FIX audit #8: field renamed from 'number' to 'name' in Odoo v16 -->
+          <p t-field="o.name"/>
+          <table class="table table-condensed table-bordered">
+            <tr>
+              <td><strong>Employee</strong></td><td><span t-field="o.employee_id"/></td>
+              <td><strong>HKID</strong></td><td><span t-field="o.employee_id.identification_id"/></td>
+            </tr>
+            <tr>
+              <td><strong>Date From</strong></td><td><span t-field="o.date_from"/></td>
+              <td><strong>Date To</strong></td><td><span t-field="o.date_to"/></td>
+            </tr>
+            <tr>
+              <td><strong>Reference</strong></td>
+              <td><span t-field="o.name"/></td>
+              <td><strong>MPF Scheme</strong></td>
+              <td><span t-field="o.employee_id.industry_scheme_id"/></td>
+            </tr>
+          </table>
+          <t t-if="o.is_construction_payroll and o.worked_days_line_ids">
+            <h3>Work Type Breakdown</h3>
+            <table class="table table-condensed mb16">
+              <thead><tr><th>Work Type</th><th class="text-right">Hours</th><th class="text-right">Days</th></tr></thead>
+              <tbody>
+                <tr t-foreach="o.worked_days_line_ids" t-as="wt">
+                  <td><span t-field="wt.name"/></td>
+                  <td class="text-right"><span t-field="wt.number_of_hours" widget="float_time"/></td>
+                  <td class="text-right"><span t-field="wt.number_of_days"/></td>
+                </tr>
+              </tbody>
+            </table>
+          </t>
+          <h3>Salary Details</h3>
+          <table class="table table-condensed mb32">
+            <thead><tr><th>Description</th><th>Code</th><th class="text-right">Amount (HKD)</th></tr></thead>
+            <tbody>
+              <t t-foreach="o.line_ids.filtered(lambda l: l.appears_on_payslip)" t-as="line">
+                <tr><td><span t-field="line.name"/></td><td><span t-field="line.code"/></td>
+                <td class="text-right"><span t-esc="line.total"/></td></tr>
+              </t>
+            </tbody>
+          </table>
+          <p class="text-right mt32"><strong>Authorised Signature</strong></p>
+        </div>
+      </t>
+    </t>
+  </t>
+</template>
+</odoo>

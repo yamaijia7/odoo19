@@ -1,0 +1,37 @@
+# -*- coding: utf-8 -*-
+{
+    'name': 'HKSSL Payroll',
+    'version': '19.0.1.1.0',
+    'category': 'Payroll',
+    'summary': 'HK Construction SSL Payroll — MPF, Work Types, Daily Rates, Expense Reimbursement, IR56B',
+    'description': '''
+Merges: construction_contracting_payroll, construction_contracting_payroll_extends,
+hk_ssl_payslip_report, hr_payroll_industry_scheme, hr_expense_payment,
+odoo_payroll_extend. All ported to Odoo 19 with full bug fixes.
+    ''',
+    'depends': ['payroll', 'hr_expense', 'hr_attendance', 'analytic', 'project'],
+    'data': [
+        'security/ir.model.access.csv',
+        'data/decimal_precision.xml',
+        'data/salary_rules_category.xml',
+        'data/salary_rules.xml',
+        'data/salary_structure.xml',
+        'data/industry_scheme_data.xml',
+        'data/work_type_data.xml',
+        'views/timesheet_work_type_views.xml',
+        'views/hr_version_views.xml',
+        'views/hr_payslip_views.xml',
+        'views/hr_employee_views.xml',
+        'views/hr_expense_views.xml',
+        'views/industry_scheme_views.xml',
+        'views/salary_rule_views.xml',
+        'report/hkssl_payslip_report_action.xml',
+        'report/hkssl_payslip_template.xml',
+        'report/ir56b_report.xml',
+        'wizard/ir56b_wizard_views.xml',
+        'views/menu_views.xml',
+    ],
+    'installable': True,
+    'application': False,
+    'license': 'LGPL-3',
+}
