@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
+import logging
+
 from odoo import models, fields, api, _, tools
 from odoo.exceptions import UserError, ValidationError
 from datetime import datetime, timedelta, date
 from dateutil.relativedelta import relativedelta
+
+_logger = logging.getLogger(__name__)
 
 
 class HksfDeliveryInvoiceWizard(models.TransientModel):
@@ -12,6 +16,31 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
      - odoo_delivery_invoice  (base wizard)
      - odoo_delivery_invoice_extend (Charge First + minimum_charge_method)
      - mass_delivery_invoice_create (consolidated wizard)
+
+    MAINTAINER NOTE -- KEEP THE TWO BILLING PATHS IN SYNC.
+    ``minimum_charge_method`` routes to two parallel implementations:
+        'normal'       -> _create_normal_invoice
+        'first_charge' -> _create_charge_first_invoice
+    They encode the SAME business rules but in separate code. A fix or rule
+    change on one path almost always needs the SAME change mirrored on the
+    other -- every historical billing bug in this wizard came from a change
+    landing on only one path.
+
+    Highest-risk area to mirror: BALANCE BROUGHT FORWARD (prior-month standing
+    inventory on a follow-up invoice). A move whose delivery is from a previous
+    period (``is_previous = self.start_date > del_date``) must:
+      * NOT be skipped by the all-time ``invoiced_quantity`` guard
+        (that field sums ALL prior invoices, so for stock billed last month it
+        equals move.quantity and the guard would drop the whole balance group,
+        producing "No invoiceable delivery orders available." on the follow-up);
+      * be billed for the FULL standing quantity = delivered qty minus only the
+        returns collected BEFORE this window's start_date (returns within the
+        window are shown separately as the collection credit line), NOT
+        ``move.quantity - invoiced_quantity``.
+    Other rules to mirror: collection / lost credit lines, transport lines,
+    service lines. When touching either path, add/extend a fixture for BOTH
+    methods (test_fixtures/test_march_followup_repro.py -> 'normal',
+    test_fixtures/test_charge_first_feb_followup_repro.py -> 'first_charge').
     """
     _name = 'hksf.delivery.invoice.wizard'
     _description = 'Delivery Invoice Wizard'
@@ -121,9 +150,40 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
 
     def action_create_delivery_invoice(self):
         self.ensure_one()
+        self._guard_duplicate_invoice()
         if self.minimum_charge_method == 'first_charge' and self.invoice_for in ('rent', 'rent_e_w_d'):
             return self._create_charge_first_invoice()
         return self._create_normal_invoice()
+
+    def _guard_duplicate_invoice(self):
+        """Hard-block creating a second invoice for the same sale order, the same
+        billing month and the same invoice type. Cancelled invoices do not block
+        (so a fresh one may be generated after cancelling/deleting the old one).
+        """
+        order = self._get_sale_order()
+        invoice_type = 'rent' if self.invoice_for in ('rent', 'rent_e_w_d') else 'damage'
+        month_start = self.end_date.replace(day=1)
+        next_month = month_start + relativedelta(months=1)
+        existing = self.env['account.move'].sudo().search([
+            ('rental_sale_id', '=', order.id),
+            ('move_type', '=', 'out_invoice'),
+            ('state', '!=', 'cancel'),
+            ('rental_invoice_type', '=', invoice_type),
+            ('invoice_date', '>=', month_start),
+            ('invoice_date', '<', next_month),
+        ], limit=1)
+        if existing:
+            raise UserError(_(
+                "An invoice already exists for this sale order and period: "
+                "%(name)s (status: %(state)s, type: %(type)s).\n\n"
+                "Delete or cancel it before generating a new one for "
+                "%(month)s."
+            ) % {
+                'name': existing.name or _('Draft'),
+                'state': existing.state,
+                'type': invoice_type,
+                'month': month_start.strftime('%B %Y'),
+            })
 
     # ------------------------------------------------------------------
     # Helpers
@@ -135,8 +195,39 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
             raise UserError(_("No active sale order found."))
         return self.env['sale.order'].browse(active_id)
 
+    def _delivery_picking_domain(self, order):
+        """Outgoing/done delivery pickings to bill for this order.
+
+        When the order is a billing master, include pickings belonging to its
+        linked child orders (via sale_id) and any picking explicitly stamped
+        with custom_sale_order_id = master (set on linked-SO confirm)."""
+        scope_ids = (order | order.child_sale_ids).ids
+        return [
+            '|',
+            ('sale_id', 'in', scope_ids),
+            ('custom_sale_order_id', '=', order.id),
+            ('picking_type_code', '=', 'outgoing'),
+            ('state', '=', 'done'),
+        ]
+
     def _prepare_invoice_vals(self, order):
         """Return base dict for account.move creation."""
+        invoice_type = 'rent' if self.invoice_for in ('rent', 'rent_e_w_d') else 'damage'
+        company = order.company_id or self.env.company
+        # Journal: honour an explicit user choice in the wizard; otherwise route
+        # by invoice type to the company's per-type default (RENT -> rental
+        # journal, DAMAGE -> repair/damage journal), falling back to Sales.
+        default_sale_journal = company._hksf_default_sale_journal()
+        if self.journal_id and self.journal_id != default_sale_journal:
+            # An explicit wizard choice always wins.
+            journal = self.journal_id
+        elif self._has_billable_service_charges(order):
+            # Any invoice carrying at least one service line posts ENTIRELY to
+            # the Service journal (a journal is per-invoice, not per-line). This
+            # overrides the rental/damage routing; income accounts are unchanged.
+            journal = company._hksf_journal_for('service')
+        else:
+            journal = company._hksf_journal_for(invoice_type)
         return {
             'move_type': 'out_invoice',
             'partner_id': order.partner_id.id,
@@ -148,17 +239,35 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
             'ref': order.client_order_ref or order.name,
             'company_id': order.company_id.id,
             'invoice_payment_term_id': order.payment_term_id.id,
-            'journal_id': self.journal_id.id if self.journal_id else False,
+            'journal_id': journal.id if journal else False,
             'charge_type': self.charge_type,
             'minimum_charge_method': self.minimum_charge_method,
-            'rental_invoice_type': 'rent' if self.invoice_for in ('rent', 'rent_e_w_d') else 'damage',
+            'rental_invoice_type': invoice_type,
             'narration': order.note and tools.html2plaintext(order.note) or '',
             # Propagate the Manual Invoice flag from the sale order so the
             # created invoice uses days-based (manual) pricing, matching the
             # Odoo 11 manual_customer_invoice behaviour. Without this the SO
             # checkbox had no effect on the generated delivery invoice.
             'is_manual_invoice': order.is_manual_invoice,
+            # Auto-fill the RE/subject line from the sale order so it is never
+            # blank on generated invoices (matches Odoo 11).
+            'rental_subject_line': order.subject_line or '',
+            # Auto-fill the CC contact from the order's contact person so the
+            # 'CC :' header line populates without manual entry. Overridable.
+            'cc_partner_id': self._default_cc_partner(order).id or False,
         }
+
+    def _default_cc_partner(self, order):
+        """Resolve the default CC contact for the invoice header.
+
+        Prefer a child contact of type 'contact' on the customer (the contact
+        person, e.g. 'loyong contact'); fall back to the order partner.
+        """
+        commercial = order.partner_id.commercial_partner_id
+        contact_child = order.partner_id.commercial_partner_id.child_ids.filtered(
+            lambda c: c.type == 'contact'
+        )[:1]
+        return contact_child or order.partner_id or commercial
 
     def _strip_tax(self, vals):
         """Force invoice lines to carry no tax (Hong Kong: no sales tax/VAT).
@@ -214,6 +323,22 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
                 return so_line[0].price_unit
         return transport.price_unit
 
+    def _collection_line_name(self, product):
+        """Build the description for a collection/deduction credit line.
+
+        Always derived from the PRODUCT (display name + internal code prefix),
+        never from the sale-order line's stored ``name`` which can carry raw,
+        mangled fallback strings (e.g. 'Ledger 12195557'). This makes the
+        deduction section match the balance section and the Odoo 11 layout:
+        '[LG121] Ledger [橫杆/橙] 1219×55×57'.
+        """
+        if not product:
+            return False
+        label = product.with_context(display_default_code=False).display_name \
+            or product.name or ''
+        code = product.default_code or ''
+        return '[%s] %s' % (code, label) if code else label
+
     def _get_transport_description(self, transport, fallback_name, order=None):
         """Build human-readable transport line description.
 
@@ -236,10 +361,8 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
         parts = []
         if picking.license_plate:
             parts.append(picking.license_plate)
-        if picking.truck_size_selection:
-            parts.append(dict(
-                self.env['stock.picking']._fields['truck_size_selection'].selection
-            ).get(picking.truck_size_selection, ''))
+        if picking.truck_size_id:
+            parts.append(picking.truck_size_id.name)
         parts.append(base)
         return ' / '.join(filter(None, parts)) or base
 
@@ -251,13 +374,15 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
         order = self._get_sale_order()
         PickingObj = self.env['stock.picking'].sudo()
 
-        delivery_ids = PickingObj.search([
-            ('sale_id', '=', order.id),
-            ('picking_type_code', '=', 'outgoing'),
-            ('state', '=', 'done'),
-        ], order='id asc')
+        delivery_ids = PickingObj.search(
+            self._delivery_picking_domain(order), order='id asc'
+        )
 
-        if not delivery_ids:
+        # Allow a SERVICE-ONLY invoice: if there are no deliveries to bill but
+        # the order has ticked, unbilled service charges, proceed so the wizard
+        # can still generate an invoice carrying just the erection / dismantling
+        # services.
+        if not delivery_ids and not self._has_billable_service_charges(order):
             raise UserError(_("No invoiceable delivery orders available."))
 
         invoice = self.env['account.move'].sudo().create(self._prepare_invoice_vals(order))
@@ -438,6 +563,9 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
         for tl in collection_transport_lines:
             self.env['account.move.line'].sudo().create(self._strip_tax(tl[2]))
 
+        # Erection / dismantling service charges (native move lines)
+        self._add_service_lines(invoice, order)
+
         if not invoice.invoice_line_ids:
             invoice.unlink()
             raise UserError(_("No lines were generated. The invoice has been discarded."))
@@ -453,11 +581,9 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
         order = self._get_sale_order()
         PickingObj = self.env['stock.picking'].sudo()
 
-        delivery_ids = PickingObj.search([
-            ('sale_id', '=', order.id),
-            ('picking_type_code', '=', 'outgoing'),
-            ('state', '=', 'done'),
-        ], order='id asc')
+        delivery_ids = PickingObj.search(
+            self._delivery_picking_domain(order), order='id asc'
+        )
 
         # Collection pickings in the date range that are not yet done
         # (transport charges may need to be billed even before validation)
@@ -471,7 +597,8 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
             ('scheduled_date_only', '<=', self.end_date),
         ], order='id asc')
 
-        if not delivery_ids and not non_delivery_ids:
+        if not delivery_ids and not non_delivery_ids \
+                and not self._has_billable_service_charges(order):
             raise UserError(_("No invoiceable delivery orders available."))
 
         invoice = self.env['account.move'].sudo().create(self._prepare_invoice_vals(order))
@@ -501,8 +628,24 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
                 and m.sale_line_id
                 and m.sale_line_id.line_type == 'rental'
             ):
-                # Skip fully invoiced
-                if (move.quantity - move.invoiced_quantity <= 0.0) and \
+                del_date = picking.scheduled_date_only
+                # A delivery from a PRIOR period is standing inventory that must
+                # be billed EVERY month as a full "Balance brought forward" line
+                # (seq 1), so it must survive the fully-invoiced guard below.
+                # ``invoiced_quantity`` sums ALL prior out-invoice lines, so for
+                # stock already billed last month it equals move.quantity and the
+                # all-time guard would wrongly skip the whole balance group --
+                # the exact bug that returned "No invoiceable delivery orders"
+                # on Charge-First FOLLOW-UP invoices (e.g. Jan delivery billed
+                # again in Feb). The Normal path already carries this carve-out
+                # (see _create_normal_invoice balance-brought-forward branch);
+                # mirror it here.
+                is_previous = self.start_date > del_date
+
+                # Skip fully invoiced -- but NEVER skip a prior-period standing
+                # move: it is recurring rent, not a one-off first-month delivery.
+                if not is_previous and \
+                   (move.quantity - move.invoiced_quantity <= 0.0) and \
                    (move.quantity - move.new_invoicing_quantity <= 0.0):
                     continue
 
@@ -513,12 +656,10 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
                     and self.start_date <= l.move_id.invoice_date <= self.end_date
                 )
 
-                del_date = picking.scheduled_date_only
                 line_price = move.sale_line_id.price_unit if move.sale_line_id else move.price_unit
                 discount = move.sale_line_id.discount if move.sale_line_id else 0.0
                 description = move.sale_line_id.name if move.sale_line_id else False
 
-                is_previous = self.start_date > del_date
                 start_date = del_date
                 add_one_day = False
 
@@ -556,7 +697,37 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
                 end_str = wiz_end.strftime('%Y-%m-%d')
                 group_by = picking if not is_previous else ('is_from_previous_month', rent_days)
 
-                quantity = move.quantity - move.invoiced_quantity
+                if is_previous:
+                    # Balance brought forward = standing quantity still on hire
+                    # at the START of this window, billed every month as
+                    # recurring rent. It must NOT subtract invoiced_quantity
+                    # (which sums all prior invoices -> would be ~0 here and the
+                    # balance line would vanish) and must NOT subtract returns
+                    # WITHIN this window (those show separately as the collection
+                    # credit line). Start from full delivered qty and subtract
+                    # only returns whose collection is dated BEFORE this window's
+                    # start_date (already gone in a prior period). Mirrors the
+                    # Normal path's balance-brought-forward branch.
+                    def _return_date(rmove):
+                        pick = rmove.picking_id
+                        if pick and pick.scheduled_date_only:
+                            return pick.scheduled_date_only
+                        if rmove.date:
+                            return rmove.date.date()
+                        if rmove.create_date:
+                            return rmove.create_date.date()
+                        return None
+                    prior_returned = sum(
+                        h.return_qty
+                        for h in move.delivery_return_history_ids
+                        if h.return_move_id
+                        and h.return_move_id.state == 'done'
+                        and _return_date(h.return_move_id)
+                        and _return_date(h.return_move_id) < self.start_date
+                    )
+                    quantity = move.quantity - prior_returned
+                else:
+                    quantity = move.quantity - move.invoiced_quantity
                 lost_qty = sum(ll.quantity for ll in lost_invoice_lines) if lost_invoice_lines else 0.0
                 if lost_qty > 0.0:
                     quantity += lost_qty
@@ -647,6 +818,9 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
         # Write transport lines
         for tl in transport_lines:
             self.env['account.move.line'].sudo().create(self._strip_tax(tl[2]))
+
+        # Erection / dismantling service charges (native move lines)
+        self._add_service_lines(invoice, order)
 
         if not invoice.invoice_line_ids:
             invoice.unlink()
@@ -794,8 +968,10 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
                 'minimum_charge_days': minimum_charge_days,
                 'delivery_history_ids': [(4, history.id)],
             }
-            if description:
-                lv['name'] = description
+            # Always name the deduction line from the PRODUCT so it matches the
+            # balance section and never shows a mangled fallback string. Falls
+            # back to the passed description only if the product yields nothing.
+            lv['name'] = self._collection_line_name(move.product_id) or description or False
             history.return_move_id.tmp_invoiced_qty = return_qty
             lines[key] = lv
 
@@ -840,6 +1016,133 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
             'name': description,
         }
         transport_lines.append((0, 0, lv))
+
+    def _service_remaining_qty(self, line):
+        """REMAINING (ordered minus already-invoiced) qty for a service order
+        line, derived from Odoo's NATIVE ``qty_invoiced``.
+
+        Single source of truth: service invoice lines are linked to the order
+        line via the native ``sale_line_ids`` m2m (see ``_add_service_lines``),
+        so the standard ``sale.order.line.qty_invoiced`` already reflects every
+        billed / cancelled / credited service line. Remaining is simply
+        ``product_uom_qty - qty_invoiced``. No custom mirror needed.
+        """
+        return (line.product_uom_qty or 0.0) - (line.qty_invoiced or 0.0)
+
+    def _billable_service_lines(self, order):
+        """Order lines flagged to bill on the next rental invoice.
+
+        Round-3 model: a "service line" is simply a service-type order line
+        (product.type == 'service') the user TICKED via ``bill_on_next_invoice``
+        whose REMAINING (ordered minus already-invoiced) qty is still positive.
+        The tick stays on after billing; once fully invoiced the remaining qty
+        is 0 so the line is no longer billable -- no auto-untick needed.
+        Section / note rows and the rental line are never billed here.
+
+        The whole order is scanned (not a delivery-filtered subset). Remaining
+        qty derives from native ``qty_invoiced`` (see ``_service_remaining_qty``)
+        so billing and the standard "Invoiced" column share one source. Emits an
+        info-level summary of how many checked service lines were found /
+        skipped and why, to help diagnose on live systems.
+        """
+        billable = self.env['sale.order.line']
+        checked = order.order_line.filtered(lambda l: l.bill_on_next_invoice)
+        skipped = []
+        for line in checked:
+            if line.display_type:
+                skipped.append((line.id, 'section/note row'))
+                continue
+            if not line.product_id:
+                skipped.append((line.id, 'no product'))
+                continue
+            if line.product_id.type != 'service':
+                skipped.append(
+                    (line.id, 'product type=%s (not service)'
+                     % line.product_id.type))
+                continue
+            remaining = self._service_remaining_qty(line)
+            if remaining <= 0.0:
+                skipped.append((line.id, 'remaining qty %.2f <= 0' % remaining))
+                continue
+            billable |= line
+
+        _logger.info(
+            "hksf service-line billing on order %s: %s checked, %s billable, "
+            "%s skipped. billable_ids=%s%s",
+            order.name or order.id, len(checked), len(billable), len(skipped),
+            billable.ids,
+            (' skipped=' + repr(skipped)) if skipped else '',
+        )
+        return billable
+
+    def _has_billable_service_charges(self, order):
+        """True if the order has at least one ticked service line with qty left
+        to bill. Used to permit a service-only invoice when there are no rental
+        deliveries to bill. (Name kept; both billing paths gate on it.)"""
+        return bool(self._billable_service_lines(order))
+
+    def _add_service_lines(self, invoice, order):
+        """Bill ticked service order lines onto this rental invoice as NATIVE
+        account.move.line records.
+
+        Single source of truth: exactly ONE move line per service order line,
+        with no manual journal-item injection and no second hidden line (this
+        is the fix for the Odoo 11 double-posting bug). Income posts through the
+        service product's OWN income account -- we omit ``account_id`` so core
+        Odoo's ``_compute_account_id`` resolves it from the product, giving a
+        clean separate 'service' income bucket.
+
+        Each line is linked to its order line the NATIVE Odoo way via the
+        ``sale_line_ids`` m2m, so the standard ``sale.order.line.qty_invoiced``
+        (and the order's ``invoice_status``) move automatically -- the order
+        line reads as invoiced through core Odoo, no custom mirror required.
+        ``custom_sale_line_id`` is still stamped for the rental/lost plumbing
+        that reads it; ``is_service_product`` routes the line to the report's
+        service section (seq 6).
+        """
+        # Per-line opt-in: only service-type lines the user TICKED
+        # (bill_on_next_invoice) that still have qty left to bill. Partial
+        # billing supported: each run bills only the OUTSTANDING quantity.
+        lines = self._billable_service_lines(order)
+        if not lines:
+            return
+        AML = self.env['account.move.line'].sudo()
+        for sol in lines:
+            # Bill only what is still outstanding, derived from native
+            # qty_invoiced -- mirrors the selection in _billable_service_lines.
+            bill_qty = self._service_remaining_qty(sol)
+            if bill_qty <= 0.0:
+                continue
+            # Defensive: native qty_invoiced only reconciles for ordered-qty
+            # policy. The sale.order.line constraint should already block this,
+            # but guard here too (covers both Normal and Charge-First paths,
+            # which share this method) so we never post a mismatched line.
+            if sol.product_id.invoice_policy != 'order':
+                raise UserError(_(
+                    "Service product \"%s\" must use the \"Ordered "
+                    "quantities\" invoicing policy to be billed by the rental "
+                    "wizard (its current policy is \"Delivered quantities\"). "
+                    "Set Invoicing Policy to \"Ordered quantities\" on the "
+                    "product, or untick \"Bill\" on the order line.",
+                    sol.product_id.display_name,
+                ))
+            lv = {
+                'move_id': invoice.id,
+                'product_id': sol.product_id.id,
+                'quantity': bill_qty,
+                'product_uom_id': sol.product_uom_id.id,
+                'price_unit': sol.price_unit,
+                'custom_price_unit': sol.price_unit,
+                'name': sol.name or sol.product_id.display_name,
+                'is_service_product': True,
+                'custom_sale_line_id': sol.id,
+                # NATIVE link: feeds sale.order.line.qty_invoiced /
+                # invoice_status via Odoo's standard _compute_qty_invoiced.
+                'sale_line_ids': [(4, sol.id)],
+            }
+            # Native creation -> account resolved from the product (service
+            # income account); tax stripped (HK has no sales tax).
+            AML.create(self._strip_tax(lv))
 
     def _add_transport_lines(self, line_vals_list, delivery_ids, invoice, order, period_days):
         """Add transport lines for Normal billing path."""

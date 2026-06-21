@@ -40,7 +40,7 @@ class SaleOrder(models.Model):
             ('first_charge', 'Charge First'),
         ],
         string='Minimum Charge Method',
-        default='first_charge',
+        default='normal',
     )
 
     # ------------------------------------------------------------------
@@ -74,6 +74,131 @@ class SaleOrder(models.Model):
         'res.users',
         string='Sales Person Signature',
     )
+
+    # ------------------------------------------------------------------
+    # Linked Sales Orders (billing master / children) + SP reference
+    # Option B: native `name` is never mangled. The coded reference is a
+    # computed/stored field; linking is relational via billing_master_id.
+    # ------------------------------------------------------------------
+    billing_master_id = fields.Many2one(
+        'sale.order',
+        string='Billing Master',
+        copy=False,
+        index=True,
+        help="If set, this order's deliveries roll up to the master order "
+             "for billing. Leave empty on the master itself.",
+    )
+    child_sale_ids = fields.One2many(
+        'sale.order', 'billing_master_id',
+        string='Linked Orders',
+    )
+    linked_order_count = fields.Integer(
+        string='Linked Orders',
+        compute='_compute_linked_order_count',
+    )
+    sp_reference = fields.Char(
+        string='SP Reference',
+        compute='_compute_sp_reference',
+        store=True,
+        help="Salesperson-coded reference printed on all custom reports. "
+             "Master: {name}/{SP}/00; Linked: {master.name}/{SP}/NN.",
+    )
+
+    def _sp_code(self):
+        """SP code fallback chain: signature user -> salesperson -> '??'."""
+        self.ensure_one()
+        return (self.sale_person_signature.sp_code
+                or self.user_id.sp_code
+                or '??')
+
+    @api.depends('child_sale_ids')
+    def _compute_linked_order_count(self):
+        for order in self:
+            order.linked_order_count = len(order.child_sale_ids)
+
+    # ------------------------------------------------------------------
+    # Active-rental tracking (monthly follow-up worklist)
+    #
+    # "Active" = a confirmed rental whose equipment is still on site:
+    # delivered (outgoing done moves) minus collected (incoming done moves)
+    # > 0. Computed LIVE from stock.move so the flag never goes stale and
+    # needs no manual product.outstanding recompute.
+    #
+    # Scoped to the billing MASTER only (billing_master_id is empty):
+    # moves are aggregated across the master + its children, so children
+    # never appear as separate active rentals in the worklist.
+    # ------------------------------------------------------------------
+    on_hire_qty = fields.Float(
+        string="On-Hire Qty",
+        compute="_compute_active_rental",
+        store=True,
+        help="Total quantity still on site: delivered (done outgoing moves) "
+             "minus collected (done incoming moves), aggregated across this "
+             "order and its linked child orders.",
+    )
+    is_active_rental = fields.Boolean(
+        string="Active Rental",
+        compute="_compute_active_rental",
+        store=True,
+        help="Confirmed rental (billing master) with equipment still on "
+             "site. Drops off automatically once everything is collected.",
+    )
+
+    @api.depends(
+        'custom_sale_type', 'state', 'billing_master_id',
+        'child_sale_ids.order_line.move_ids.state',
+        'child_sale_ids.order_line.move_ids.quantity',
+        'order_line.move_ids.state',
+        'order_line.move_ids.quantity',
+    )
+    def _compute_active_rental(self):
+        Move = self.env['stock.move'].sudo()
+        for order in self:
+            # Only billing masters carry the flag; children roll up to master.
+            if order.billing_master_id:
+                order.on_hire_qty = 0.0
+                order.is_active_rental = False
+                continue
+            scope_ids = (order | order.child_sale_ids).ids
+            if not scope_ids:
+                order.on_hire_qty = 0.0
+                order.is_active_rental = False
+                continue
+            delivered = sum(Move.search([
+                ('custom_sale_id', 'in', scope_ids),
+                ('picking_code', '=', 'outgoing'),
+                ('state', '=', 'done'),
+            ]).mapped('quantity'))
+            collected = sum(Move.search([
+                ('custom_sale_id', 'in', scope_ids),
+                ('picking_code', '=', 'incoming'),
+                ('state', '=', 'done'),
+            ]).mapped('quantity'))
+            on_hire = delivered - collected
+            order.on_hire_qty = on_hire
+            order.is_active_rental = (
+                order.custom_sale_type == 'rent'
+                and order.state == 'sale'
+                and on_hire > 0.0
+            )
+
+    @api.depends(
+        'name', 'billing_master_id', 'billing_master_id.name',
+        'billing_master_id.child_sale_ids',
+        'sale_person_signature.sp_code', 'user_id.sp_code',
+    )
+    def _compute_sp_reference(self):
+        for order in self:
+            sp = order._sp_code()
+            master = order.billing_master_id
+            if master:
+                siblings = master.child_sale_ids.sorted('id')
+                # Position of this child among siblings (1-based) -> 01, 02...
+                nn = (list(siblings).index(order) + 1) if order in siblings else 1
+                base = master.name or ''
+                order.sp_reference = '%s/%s/%02d' % (base, sp, nn)
+            else:
+                order.sp_reference = '%s/%s/00' % (order.name or '', sp)
 
     # ------------------------------------------------------------------
     # Weight / volume aggregates (from hksf_rental)
@@ -121,6 +246,15 @@ class SaleOrder(models.Model):
         'order_id',
         string='Outstanding Products',
         copy=False,
+    )
+    service_charge_ids = fields.One2many(
+        'service.charge',
+        'order_id',
+        string='Service Charges',
+        copy=False,
+        help="Erection / dismantling (and other) service charges. Picked up "
+             "by the rental invoice wizard and billed as native invoice "
+             "lines through each service product's income account.",
     )
 
     # ------------------------------------------------------------------
@@ -186,11 +320,13 @@ class SaleOrder(models.Model):
         any standard invoice_ids — so the smart button reflects every invoice
         produced from this order."""
         for order in self:
+            # A billing master aggregates its own + child orders' invoices.
+            order_ids = (order | order.child_sale_ids).ids
             moves = self.env['account.move'].search([
-                ('rental_sale_id', '=', order.id),
+                ('rental_sale_id', 'in', order_ids),
                 ('move_type', 'in', ('out_invoice', 'out_refund')),
             ])
-            moves |= order.invoice_ids.filtered(
+            moves |= (order | order.child_sale_ids).invoice_ids.filtered(
                 lambda m: m.move_type in ('out_invoice', 'out_refund')
             )
             order.delivery_invoice_count = len(moves)
@@ -222,6 +358,108 @@ class SaleOrder(models.Model):
                 'domain': [('id', 'in', moves.ids)],
             })
         return action
+
+    # ------------------------------------------------------------------
+    # NOTE (v19.0.1.70.0): the round-2 "Pull Invoiceable Service Lines" action
+    # (action_pull_invoiceable_service_lines / _invoiceable_service_charges)
+    # was REMOVED. Service billing is now driven by the per-order-line
+    # "Bill on Next Invoice" checkbox; the wizard selects ticked service order
+    # lines directly (delivery_invoice_wizard._billable_service_lines).
+    # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Linked Sales Order: actions (new linked order, pull prices, views)
+    # ------------------------------------------------------------------
+    def action_new_linked_order(self):
+        """Create a child SO linked to this master via billing_master_id.
+
+        Driven by the wizard context 'copy_lines' (default True): when True
+        the master's order lines are copied (product/qty/prices); when False
+        the child starts blank. Returns the new SO form."""
+        self.ensure_one()
+        copy_lines = self.env.context.get('copy_lines', True)
+        vals = {
+            'partner_id': self.partner_id.id,
+            'partner_shipping_id': self.partner_shipping_id.id,
+            'partner_invoice_id': self.partner_invoice_id.id,
+            'billing_master_id': self.id,
+            'custom_sale_type': self.custom_sale_type,
+            'charge_type': self.charge_type,
+            'user_id': self.user_id.id,
+            'sale_person_signature': self.sale_person_signature.id,
+            'order_line': [],
+        }
+        if copy_lines:
+            line_cmds = []
+            for line in self.order_line.filtered(lambda l: not l.display_type):
+                line_cmds.append((0, 0, {
+                    'product_id': line.product_id.id,
+                    'name': line.name,
+                    'product_uom_qty': line.product_uom_qty,
+                    'product_uom': line.product_uom.id,
+                    'price_unit': line.price_unit,
+                    'repair_price': line.repair_price,
+                    'lost_price': line.lost_price,
+                }))
+            vals['order_line'] = line_cmds
+        new_order = self.create(vals)
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Linked Order'),
+            'res_model': 'sale.order',
+            'view_mode': 'form',
+            'res_id': new_order.id,
+        }
+
+    def action_pull_master_prices(self):
+        """On a draft linked SO, pull price_unit / repair_price / lost_price
+        from the billing master, matching lines by product_id."""
+        self.ensure_one()
+        master = self.billing_master_id
+        if not master:
+            raise UserError(_("This order has no billing master to pull from."))
+        master_by_product = {}
+        for ml in master.order_line.filtered(lambda l: l.product_id):
+            master_by_product.setdefault(ml.product_id.id, ml)
+        for line in self.order_line.filtered(lambda l: l.product_id):
+            ml = master_by_product.get(line.product_id.id)
+            if ml:
+                line.write({
+                    'price_unit': ml.price_unit,
+                    'repair_price': ml.repair_price,
+                    'lost_price': ml.lost_price,
+                })
+        return True
+
+    def action_view_linked_orders(self):
+        """Smart button on a master: open its linked (child) orders."""
+        self.ensure_one()
+        children = self.child_sale_ids
+        action = {
+            'type': 'ir.actions.act_window',
+            'name': _('Linked Orders'),
+            'res_model': 'sale.order',
+            'context': {'default_billing_master_id': self.id},
+        }
+        if len(children) == 1:
+            action.update({'view_mode': 'form', 'res_id': children.id})
+        else:
+            action.update({
+                'view_mode': 'list,form',
+                'domain': [('id', 'in', children.ids)],
+            })
+        return action
+
+    def action_view_billing_master(self):
+        """Smart button on a child: open its billing master."""
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Billing Master'),
+            'res_model': 'sale.order',
+            'view_mode': 'form',
+            'res_id': self.billing_master_id.id,
+        }
 
     # ------------------------------------------------------------------
     # Computed totals (from hksf_rental)
@@ -264,7 +502,14 @@ class SaleOrder(models.Model):
     # Action: Open the Create Delivery Invoice wizard from the form header
     # ------------------------------------------------------------------
     def action_open_delivery_invoice_wizard(self):
-        """Header button: open the delivery invoice wizard for this order."""
+        """ORPHAN (kept intentionally): not wired to any button/action as of
+        v19.0.1.30.0. The header 'Create Rental Invoice' button calls the
+        window-action XML (action_hksf_delivery_invoice_wizard) directly, so
+        this Python helper is currently unreferenced. Retained as a convenient
+        programmatic entry point (e.g. server actions / future buttons). If you
+        confirm it is truly unneeded, it is safe to delete.
+
+        Header button: open the delivery invoice wizard for this order."""
         self.ensure_one()
         return {
             'type': 'ir.actions.act_window',
@@ -284,15 +529,21 @@ class SaleOrder(models.Model):
     # Action: Compute outstanding products (from hksf_delivery_invoice)
     # ------------------------------------------------------------------
     def action_compute_outstanding_products(self):
-        """Recompute delivered vs collected qty per product for this order."""
+        """Recompute delivered vs collected qty per product for this order.
+
+        When run on a billing master, aggregate moves across the master and
+        all its child (linked) orders, so outstanding reflects the whole
+        billing group."""
         for order in self:
+            # Aggregate across self + linked children when this is a master.
+            scope_ids = (order | order.child_sale_ids).ids
             delivery_moves = self.env['stock.move'].search([
-                ('custom_sale_id', '=', order.id),
+                ('custom_sale_id', 'in', scope_ids),
                 ('picking_code', '=', 'outgoing'),
                 ('state', '=', 'done'),
             ])
             incoming_moves = self.env['stock.move'].search([
-                ('custom_sale_id', '=', order.id),
+                ('custom_sale_id', 'in', scope_ids),
                 ('picking_code', '=', 'incoming'),
                 ('state', '=', 'done'),
             ])
@@ -388,6 +639,16 @@ class SaleOrder(models.Model):
         Reload button does a forced overwrite when you want a clean re-pull."""
         res = super().action_confirm()
         self._stamp_rd_prices(force=False)
+        # Linked SOs: stamp newly created pickings' custom_sale_order_id with
+        # the billing master so deliveries roll up to the master for billing.
+        for order in self.filtered('billing_master_id'):
+            pickings = order.picking_ids.filtered(
+                lambda p: not p.custom_sale_order_id
+            )
+            if pickings:
+                pickings.write(
+                    {'custom_sale_order_id': order.billing_master_id.id}
+                )
         return res
 
     # ------------------------------------------------------------------
@@ -532,7 +793,151 @@ class SaleOrder(models.Model):
                 new_line.with_context(check_move_validity=False).account_id = account.id
             line.invoice_id = invoice.id
 
+        self._create_lost_return_picking(
+            lines_to_invoice,
+            invoice.invoice_date or fields.Date.today(),
+        )
         return invoice
+
+    # ------------------------------------------------------------------
+    # Lost = return: stop renting the lost qty from the lost-invoice date
+    # ------------------------------------------------------------------
+    def _create_lost_return_picking(self, lost_lines, return_date):
+        """Create ONE validated incoming picking for the lost lines so the lost
+        qty is treated exactly like stock returned to us on ``return_date``.
+
+        This is what makes a lost invoice stop the rental clock for those
+        units. Mirrors ``collection.return.wizard.action_create_collection`` but
+        is driven by the lost lines and dated on the lost-invoice date so rental
+        billing pro-rates correctly to that date. Per-move ``return_qty`` is
+        capped by remaining (delivered - already_returned) capacity, so a
+        delivery move can never be over-returned even on an accidental re-run.
+        """
+        self.ensure_one()
+        order = self
+        lost_lines = lost_lines.filtered(
+            lambda l: l.type == 'lost' and (l.qty or 0.0) > 0.0
+        )
+        if not lost_lines:
+            return self.env['stock.picking']
+
+        warehouse = order.warehouse_id
+        if not warehouse:
+            return self.env['stock.picking']
+
+        out_type = self.env['stock.picking.type'].search([
+            ('code', '=', 'outgoing'),
+            ('warehouse_id', '=', warehouse.id),
+        ], limit=1)
+        return_type = out_type.return_picking_type_id or self.env['stock.picking.type'].search([
+            ('code', '=', 'incoming'),
+            ('warehouse_id', '=', warehouse.id),
+        ], limit=1)
+        if not return_type:
+            return self.env['stock.picking']
+
+        location_id = return_type.default_location_src_id
+        location_dest_id = return_type.default_location_dest_id
+
+        site_contact_ids = (
+            [(4, c.id) for c in order.site_contact_ids]
+            if 'site_contact_ids' in order._fields else False
+        )
+
+        picking_vals = {
+            'partner_id': order.partner_shipping_id.id or order.partner_id.id,
+            'company_id': order.company_id.id,
+            'location_id': location_id.id,
+            'location_dest_id': location_dest_id.id,
+            'scheduled_date_only': return_date,
+            'picking_type_id': return_type.id,
+            'origin': '%s (Lost)' % order.name,
+            'custom_sale_order_id': order.id,
+            'partner_parent_id': order.partner_id.parent_id.id or order.partner_id.id,
+            'is_lost_return': True,
+        }
+        if site_contact_ids:
+            picking_vals['site_contact_ids'] = site_contact_ids
+        picking = self.env['stock.picking'].sudo().create(picking_vals)
+
+        History = self.env['delivery.return.history'].sudo()
+        Move = self.env['stock.move'].sudo()
+
+        delivery_moves_all = Move.search([
+            ('custom_sale_id', '=', order.id),
+            ('picking_code', '=', 'outgoing'),
+            ('state', '=', 'done'),
+        ])
+
+        qty_by_product = {}
+        for line in lost_lines:
+            qty_by_product.setdefault(line.product_id, 0.0)
+            qty_by_product[line.product_id] += line.qty
+
+        for product, qty_left in qty_by_product.items():
+            if qty_left <= 0.0:
+                continue
+            return_move = Move.create({
+                'description_picking': product.name,
+                'company_id': order.company_id.id,
+                'product_id': product.id,
+                'product_uom': product.uom_id.id,
+                'product_uom_qty': qty_left,
+                'partner_id': order.partner_shipping_id.id or order.partner_id.id,
+                'location_id': location_id.id,
+                'location_dest_id': location_dest_id.id,
+                'origin': '%s (Lost)' % order.name,
+                'picking_id': picking.id,
+                'date': return_date,
+                'custom_sale_id': order.id,
+                'state': 'draft',
+            })
+
+            remaining = qty_left
+            delivery_moves = delivery_moves_all.filtered(
+                lambda m: m.product_id == product
+            ).sorted(lambda m: (m.date or m.create_date, m.id))
+            for dmove in delivery_moves:
+                if remaining <= 0.0:
+                    break
+                already_returned = sum(
+                    h.return_qty for h in dmove.delivery_return_history_ids
+                )
+                capacity = dmove.quantity - already_returned
+                if capacity <= 0.0:
+                    continue
+                alloc = min(capacity, remaining)
+                history = History.create({
+                    'deliver_move_id': dmove.id,
+                    'return_move_id': return_move.id,
+                    'return_qty': alloc,
+                    'delivered_qty': dmove.quantity,
+                })
+                dmove.delivery_return_history_ids = [(4, history.id)]
+                return_move.delivery_return_history_ids = [(4, history.id)]
+                remaining -= alloc
+
+        # Validate the picking the CORE-SAFE way. ``button_validate`` is the
+        # standard entry point and moves quants + posts valuation. In a
+        # head-less/rental context it may return an action dict (an
+        # immediate-transfer / backorder confirmation wizard that a user would
+        # normally click through) instead of completing; when that happens we
+        # finish via ``_action_done()`` -- the SAME core primitive
+        # ``button_validate`` itself calls -- so quants and valuation are still
+        # handled by Odoo. We NEVER force ``state='done'`` directly, which would
+        # mark the move done WITHOUT moving stock and desync the ledger.
+        try:
+            for mv in picking.move_ids:
+                mv.quantity = mv.product_uom_qty
+            res = picking.button_validate()
+            if isinstance(res, dict) and picking.state != 'done':
+                picking.move_ids._action_done()
+        except Exception:
+            # Last-resort completion still goes through the core done routine
+            # (moves quants / valuation), never a raw state write.
+            picking.move_ids._action_done()
+
+        return picking
 
     # ------------------------------------------------------------------
     # Action: Create lost invoice straight from the Outstanding page
@@ -623,14 +1028,41 @@ class SaleOrder(models.Model):
             'target': 'current',
         }
 
+    # ------------------------------------------------------------------
+    # Guard native invoicing against wizard-managed service lines
+    # ------------------------------------------------------------------
+    def _get_invoiceable_lines(self, final=False):
+        """Exclude wizard-managed service lines from NATIVE invoice generation.
+
+        Round 6 linked billed service lines to their order line via the native
+        ``sale_line_ids`` m2m so ``qty_invoiced`` / ``invoice_status`` track
+        them for DISPLAY. The side effect is that those lines become candidates
+        for Odoo's native ``_create_invoices`` flow (Sales > To Invoice,
+        server action, scheduled auto-invoice, portal/API) -- which would
+        DOUBLE-bill them, since the rental wizard is their sole biller.
+
+        ``_get_invoiceable_lines`` is the single hook ``_create_invoices`` uses
+        to decide which lines to invoice, so filtering here stops native line
+        creation everywhere without touching the qty_invoiced display.
+
+        Predicate (wizard-managed = excluded): a real product line
+        (``not display_type``) whose product is service-type and whose
+        ``bill_on_next_invoice`` flag is set. Non-service rental / transport /
+        sale lines are NEVER filtered -- they stay natively invoiceable.
+        """
+        lines = super()._get_invoiceable_lines(final=final)
+        return lines.filtered(lambda l: not (
+            not l.display_type
+            and l.product_id.type == 'service'
+            and l.bill_on_next_invoice
+        ))
+
     def _prepare_lost_invoice_values(self):
         """Return dict of values to create a lost-material out_invoice."""
         self.ensure_one()
         company = self.company_id or self.env.company
-        journal = self.env['account.journal'].search([
-            ('type', '=', 'sale'),
-            ('company_id', '=', company.id),
-        ], limit=1)
+        # Per-type default journal (LOST), falling back to standard Sales.
+        journal = company._hksf_journal_for('lost')
         return {
             'move_type': 'out_invoice',
             'partner_id': self.partner_id.id,

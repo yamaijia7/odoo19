@@ -1,14 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
-        <!-- Override the default SO report to use our custom paper format -->
+        <!-- ============================================================
+             Override the CORE "Print Quotation" button to use the NATIVE
+             body report (E&D / everything-else). This stays the default for
+             any standard Odoo print trigger. Users choose a specific branded
+             document via the "Print Document" wizard on the SO header.
+             ============================================================ -->
         <record id="sale.action_report_saleorder" model="ir.actions.report">
+            <field name="report_name">hksf_rental.report_sale_native</field>
+            <field name="report_file">hksf_rental.report_sale_native</field>
+            <field name="print_report_name">
+                (object.state in ('draft', 'sent') and 'Quotation - %s' % object.name) or 'Order - %s' % object.name
+            </field>
             <field name="paperformat_id" ref="hksf_rental.hksf_rental_paper_format"/>
         </record>
 
-        <!-- Dedicated Rental/Sales report action -->
+        <!-- ============================================================
+             Rental Quote report (custom rental body).
+             No binding_model_id: not shown in the native Print dropdown;
+             launched only via the "Print Document" wizard.
+             ============================================================ -->
         <record id="action_report_hksf_rental" model="ir.actions.report">
-            <field name="name">Rental / Sales Quotation</field>
+            <field name="name">Rental Quote</field>
             <field name="model">sale.order</field>
             <field name="report_type">qweb-pdf</field>
             <field name="report_name">hksf_rental.report_sale_rental</field>
@@ -17,8 +31,22 @@
                 (object.state in ('draft', 'sent') and 'Quotation - %s' % object.name) or 'Order - %s' % object.name
             </field>
             <field name="paperformat_id" ref="hksf_rental.hksf_rental_paper_format"/>
-            <field name="binding_model_id" ref="sale.model_sale_order"/>
-            <field name="binding_type">report</field>
+        </record>
+
+        <!-- ============================================================
+             E&D Quote report (native body).
+             No binding_model_id: launched only via the "Print Document" wizard.
+             ============================================================ -->
+        <record id="action_report_hksf_sale_native" model="ir.actions.report">
+            <field name="name">E&amp;D Quote</field>
+            <field name="model">sale.order</field>
+            <field name="report_type">qweb-pdf</field>
+            <field name="report_name">hksf_rental.report_sale_native</field>
+            <field name="report_file">hksf_rental.report_sale_native</field>
+            <field name="print_report_name">
+                (object.state in ('draft', 'sent') and 'Quotation - %s' % object.name) or 'Order - %s' % object.name
+            </field>
+            <field name="paperformat_id" ref="hksf_rental.hksf_rental_paper_format"/>
         </record>
     </data>
 </odoo>

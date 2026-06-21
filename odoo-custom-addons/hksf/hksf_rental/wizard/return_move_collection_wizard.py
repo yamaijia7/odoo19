@@ -29,7 +29,7 @@ class ReturnMoveCollectionWizard(models.TransientModel):
             ('by_customer', 'By Customer'),
         ],
         string='Transportation Method',
-        default='by_customer',
+        default='by_us',
     )
 
     # ------------------------------------------------------------------

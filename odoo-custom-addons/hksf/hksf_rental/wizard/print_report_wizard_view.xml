@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_hksf_print_report_wizard_form" model="ir.ui.view">
+        <field name="name">hksf.print.report.wizard.form</field>
+        <field name="model">hksf.print.report.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Print Document">
+                <field name="order_id" invisible="1"/>
+                <group>
+                    <field name="report_type"/>
+                </group>
+                <footer>
+                    <button name="action_print" type="object"
+                            string="Print" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_hksf_print_report_wizard" model="ir.actions.act_window">
+        <field name="name">Print Document</field>
+        <field name="res_model">hksf.print.report.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="context">{'default_order_id': active_id}</field>
+    </record>
+
+</odoo>

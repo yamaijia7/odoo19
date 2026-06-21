@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Unified Create Invoice dispatcher: morphing form that routes to the
+         delivery / damage / lost flows based on Invoice Kind. -->
+    <record id="view_hksf_create_invoice_wizard_form" model="ir.ui.view">
+        <field name="name">hksf.create.invoice.wizard.form</field>
+        <field name="model">hksf.create.invoice.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Create Invoice">
+                <field name="sale_order_id" invisible="1"/>
+                <field name="company_id" invisible="1"/>
+                <group>
+                    <field name="invoice_kind" widget="radio"/>
+                    <field name="journal_id"
+                           options="{'no_create': True}"
+                           placeholder="Auto (recommended)"/>
+                </group>
+
+                <!-- ===== Rental / Service ===== -->
+                <group string="Rental / Service Options"
+                       invisible="invoice_kind != 'rental'">
+                    <group>
+                        <field name="invoice_for"/>
+                        <field name="charge_type"/>
+                        <field name="minimum_charge_method"/>
+                    </group>
+                    <group>
+                        <field name="start_date"/>
+                        <field name="end_date"/>
+                    </group>
+                </group>
+
+                <!-- ===== Repair + Damage ===== -->
+                <group string="Repair + Damage Options"
+                       invisible="invoice_kind != 'damage'">
+                    <field name="date_from"/>
+                    <field name="date_to"/>
+                    <div class="text-muted" colspan="2">
+                        Eligible uninvoiced repair &amp; damage lines are pulled
+                        automatically. Leave dates blank to bill everything
+                        outstanding.
+                    </div>
+                </group>
+
+                <!-- ===== Lost Material ===== -->
+                <group string="Lost Material"
+                       invisible="invoice_kind != 'lost'">
+                    <div class="text-muted" colspan="2">
+                        Lost material is computed from the Outstanding Products
+                        balance (delivered &#8722; collected) and invoiced in one
+                        click. Review the resulting draft invoice before posting.
+                    </div>
+                </group>
+
+                <!-- ===== Standard (Sales Order) ===== -->
+                <group string="Standard Invoicing"
+                       invisible="invoice_kind != 'standard'">
+                    <div class="text-muted" colspan="2">
+                        Opens Odoo's native Create Invoice wizard
+                        (regular invoice / down payment) for plain Sales orders.
+                        The order must be confirmed.
+                    </div>
+                </group>
+
+                <footer>
+                    <button name="action_create"
+                            string="Create Invoice"
+                            type="object"
+                            class="btn-primary"/>
+                    <button string="Cancel"
+                            class="btn-secondary"
+                            special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Action referenced by the SO header button (defined here; this view
+         file loads BEFORE sale_order_view.xml in the manifest).
+         No binding_model_id: the dispatcher lives in the HEADER as the primary
+         Create Invoice button (Odoo's native one stays in the cog menu). -->
+    <record id="action_hksf_create_invoice_wizard" model="ir.actions.act_window">
+        <field name="name">Create Invoice</field>
+        <field name="res_model">hksf.create.invoice.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

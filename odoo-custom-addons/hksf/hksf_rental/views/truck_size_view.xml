@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- List view (editable: create/save/delete inline) -->
+    <record id="view_truck_size_list" model="ir.ui.view">
+        <field name="name">hksf.truck.size.list</field>
+        <field name="model">hksf.truck.size</field>
+        <field name="arch" type="xml">
+            <list string="Truck Sizes" editable="bottom">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Form view -->
+    <record id="view_truck_size_form" model="ir.ui.view">
+        <field name="name">hksf.truck.size.form</field>
+        <field name="model">hksf.truck.size</field>
+        <field name="arch" type="xml">
+            <form string="Truck Size">
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="sequence"/>
+                        <field name="active"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_truck_size" model="ir.actions.act_window">
+        <field name="name">Truck Sizes</field>
+        <field name="res_model">hksf.truck.size</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create a new truck size
+            </p>
+            <p>
+                Truck sizes appear in the Truck Size dropdown on delivery /
+                collection pickings. You can add, rename, archive or delete them here.
+            </p>
+        </field>
+    </record>
+
+    <!-- Menu under Inventory > Configuration -->
+    <menuitem id="menu_truck_size"
+              name="Truck Sizes"
+              parent="stock.menu_stock_config_settings"
+              action="action_truck_size"
+              sequence="200"/>
+
+    <!-- Seed default truck sizes (noupdate so user edits/deletes persist) -->
+    <data noupdate="1">
+        <record id="truck_size_5_ton" model="hksf.truck.size">
+            <field name="name">5 Ton</field>
+            <field name="sequence">10</field>
+        </record>
+        <record id="truck_size_10_ton" model="hksf.truck.size">
+            <field name="name">10 Ton</field>
+            <field name="sequence">20</field>
+        </record>
+        <record id="truck_size_20_ton" model="hksf.truck.size">
+            <field name="name">20 Ton</field>
+            <field name="sequence">30</field>
+        </record>
+        <record id="truck_size_flatbed" model="hksf.truck.size">
+            <field name="name">Flatbed</field>
+            <field name="sequence">40</field>
+        </record>
+        <record id="truck_size_other" model="hksf.truck.size">
+            <field name="name">Other</field>
+            <field name="sequence">50</field>
+        </record>
+    </data>
+
+</odoo>

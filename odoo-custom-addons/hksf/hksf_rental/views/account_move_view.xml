@@ -17,6 +17,19 @@
             <!-- Manual Invoice flag in the invoice header (Other Info area) -->
             <xpath expr="//field[@name='invoice_date']" position="after">
                 <field name="is_manual_invoice"/>
+                <field name="cc_partner_id"/>
+            </xpath>
+            <!-- Reverse a Lost invoice and resume rental (client asked for a
+                 cut-off / write-off that was never paid). Only shown on a
+                 not-yet-cancelled Lost Material invoice. Confirms first so it
+                 is not clicked by accident. -->
+            <xpath expr="//header/button[@name='action_post'][1]" position="before">
+                <button name="action_reverse_lost_resume_rental"
+                        string="Reverse Lost &amp; Resume Rental"
+                        type="object"
+                        class="btn-warning"
+                        confirm="This will undo the lost write-off: rental resumes on the affected quantity from the next invoice, the stock is taken back out to the customer, and this lost invoice is cancelled (kept for audit). Continue?"
+                        invisible="rental_invoice_type != 'lost' or state == 'cancel'"/>
             </xpath>
             <!-- Default-visible columns on the invoice lines list, per user:
                  leave the CORE columns alone (Product, Label, Account, Analytic,
@@ -25,6 +38,10 @@
                  default view. The user can still toggle anything on via the
                  column filter. These are per-user UI defaults only; they do not
                  affect the printed PDF. -->
+
+            <!-- Unit Price uses the NATIVE Odoo 19 field (digits='Product
+                 Price'); set the global Product Price decimal accuracy to 5 to
+                 show pro-rated rates with extra decimals. No display override. -->
 
             <!-- Add the HKSF custom columns after price_unit; ALL hidden by
                  default so the user's 4-column default is preserved. -->

@@ -7,6 +7,7 @@
         <field name="arch" type="xml">
             <xpath expr="//field[@name='signature']" position="after">
                 <field name="signature_custom" widget="image"/>
+                <field name="sp_code"/>
             </xpath>
         </field>
     </record>

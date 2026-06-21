@@ -1,15 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-    <!-- Delivery Invoice Wizard action (defined BEFORE the view so the
-         header button can reference it by xml id) -->
+    <!-- Rental invoice wizard action. Cog-menu binding REMOVED (v19.0.1.65.0):
+         reached via the unified Create Invoice wizard (kind = Rental/Service),
+         which delegates to this model. Record kept (no binding) for clarity. -->
     <record id="action_hksf_delivery_invoice_wizard" model="ir.actions.act_window">
         <field name="name">Create Rental Invoice</field>
         <field name="res_model">hksf.delivery.invoice.wizard</field>
         <field name="view_mode">form</field>
         <field name="target">new</field>
-        <field name="binding_model_id" ref="sale.model_sale_order"/>
-        <field name="binding_view_types">form</field>
     </record>
 
     <!-- ================================================================
@@ -22,18 +21,54 @@
         <field name="inherit_id" ref="sale.view_order_form"/>
         <field name="arch" type="xml">
 
-            <!-- Header buttons: Create Rental Invoice + Create Collection (rental orders) -->
+            <!-- Hide Odoo's native Create Invoice from the HEADER only; it stays
+                 available in the cog/Action menu (its bound action is left
+                 intact). The unified dispatcher below replaces it in the header. -->
+            <xpath expr="//button[@id='create_invoice']" position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
+            <xpath expr="//button[@id='create_invoice_percentage']" position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
+
+            <!-- Header buttons: unified Create Invoice + Print Quote + rental actions -->
             <xpath expr="//header" position="inside">
-                <button name="%(action_hksf_delivery_invoice_wizard)d"
-                        string="Create Rental Invoice"
+                <!-- Unified Create Invoice dispatcher (replaces the native header
+                     button). Shown on confirmed orders of any sale type. -->
+                <button name="%(action_hksf_create_invoice_wizard)d"
+                        string="Create Invoice"
                         type="action"
                         class="btn-primary"
-                        invisible="custom_sale_type != 'rent' or state not in ('sale', 'done')"/>
+                        invisible="state not in ('sale', 'done')"/>
+                <!-- Print-document chooser (Rental Quote / E&D Quote) -->
+                <button name="%(action_hksf_print_report_wizard)d"
+                        string="Print Quote"
+                        type="action"
+                        class="btn-secondary"/>
                 <button name="%(action_collection_return_wizard)d"
                         string="Create Collection"
                         type="action"
                         class="btn-primary"
                         invisible="custom_sale_type != 'rent' or state not in ('sale', 'done')"/>
+                <!-- Unified New Order launcher: merges the former "Top-up
+                     Delivery" and "New Linked Order" header buttons. The
+                     dispatcher (hksf.new.order.wizard) routes to the existing
+                     top-up grid wizard or sale.order.action_new_linked_order().
+                     Visibility = union of the two former buttons' conditions:
+                       - Top-up: confirmed rental, not a child order
+                       - Linked: confirmed (state 'sale'), not a child order
+                     i.e. shown on a confirmed master order; the top-up branch
+                     is guarded for non-rental inside the wizard. -->
+                <button name="%(action_hksf_new_order_wizard)d"
+                        string="New Order"
+                        type="action"
+                        class="btn-secondary"
+                        invisible="state not in ('sale', 'done') or billing_master_id"/>
+                <button name="action_pull_master_prices"
+                        string="Pull Prices from Master"
+                        type="object"
+                        class="btn-secondary"
+                        invisible="not billing_master_id or state not in ('draft', 'sent')"/>
             </xpath>
 
             <!-- Smart button: Invoices linked to this order (wizard + standard) -->
@@ -52,6 +87,32 @@
                         invisible="custom_sale_type != 'rent'">
                     <field name="incoming_shipment_count" widget="statinfo" string="Collections"/>
                 </button>
+                <!-- Linked Orders smart button (master) -->
+                <button name="action_view_linked_orders"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-link"
+                        invisible="linked_order_count == 0">
+                    <field name="linked_order_count" widget="statinfo" string="Linked Orders"/>
+                </button>
+                <!-- Billing master smart button (child) -->
+                <button name="action_view_billing_master"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-money"
+                        invisible="not billing_master_id">
+                    <div class="o_stat_info">
+                        <span class="o_stat_text">Billing via</span>
+                        <field name="billing_master_id" class="o_stat_value" nolabel="1"/>
+                    </div>
+                </button>
+            </xpath>
+
+            <!-- Linked-order header fields: SP reference + billing master -->
+            <xpath expr="//field[@name='partner_shipping_id']" position="before">
+                <field name="sp_reference" readonly="1"/>
+                <field name="billing_master_id" readonly="1"
+                       invisible="not billing_master_id"/>
             </xpath>
 
             <!-- Sale Type + Subject after partner_shipping_id -->
@@ -116,7 +177,30 @@
                 <field name="subtotal_weight" string="Sub. Wt" optional="hide"/>
                 <field name="volume" string="Vol" optional="hide"/>
                 <field name="subtotal_volume" string="Sub. Vol" optional="hide"/>
+                <!-- Service order lines: tick "Bill" to bill this service-type
+                     line's remaining qty on the next rental invoice. The
+                     checkbox is only meaningful for service products, so the
+                     column is hidden for non-service lines (rental / sale
+                     lines) and the monthly rental proration is never affected.
+                     class="text-center" centres both the header and the boolean
+                     glyph in the cell. -->
+                <field name="is_service_line" column_invisible="1"/>
+                <field name="bill_on_next_invoice" string="Bill"
+                       class="text-center"
+                       readonly="not is_service_line"
+                       invisible="not is_service_line"
+                       optional="show"/>
             </xpath>
+
+            <!-- NOTE (v19.0.1.74.0): we do NOT add a qty_invoiced column here.
+                 The base sale Order Lines list already renders the native
+                 qty_invoiced ("Invoiced") column (after "Delivered"). The
+                 round-6 view added a SECOND qty_invoiced column next to "Bill",
+                 which produced a duplicate "Invoiced" header. That added column
+                 was removed; the single native column is the source of truth and
+                 is fed by the wizard's sale_line_ids link on service invoice
+                 lines. (Custom service_invoiced_qty / service_to_invoice_qty
+                 mirror columns were already removed in v19.0.1.73.0.) -->
 
             <!-- Order line form: add rental fields after product_id in form -->
             <xpath expr="//field[@name='product_id']" position="after">
@@ -183,15 +267,12 @@
                             string="Compute Outstanding"
                             type="object"
                             class="btn-secondary mb8"/>
-                    <!-- Lost is driven from the Outstanding shortfall: this
-                         recomputes the lost lines from deliveries and raises
-                         the lost invoice in one click. (replaces the retired
-                         Lost / Damaged Materials tab) -->
-                    <button name="action_outstanding_create_lost_invoice"
-                            string="Create Lost Material Invoice"
-                            type="object"
-                            class="btn-primary mb8"
-                            confirm="This will recompute lost materials from deliveries and create a lost invoice. Continue?"/>
+                    <!-- Lost Material invoicing now lives in the unified Create
+                         Invoice wizard (header -> Create Invoice -> kind = Lost
+                         Material), which auto-runs Compute Outstanding first.
+                         The page button was removed to reduce clutter; the
+                         underlying action_outstanding_create_lost_invoice is
+                         still called by that wizard. -->
                     <!-- Qty columns forced to 0 decimals on THIS page only via
                          options digits=[16,0] (does not change global UoM
                          precision). 'Balance' = delivered - collected. Unit
@@ -219,21 +300,41 @@
                      UI entry point moved to the Outstanding Products page above.
                      No data is dropped. -->
 
+                <!-- NOTE (v19.0.1.70.0): the round-2 "Service Lines" page +
+                     "Pull Invoiceable Service Lines" button were REMOVED.
+                     Service billing is now driven by the per-order-line
+                     "Bill on Next Invoice" checkbox in the Order Lines list
+                     above. The service.charge model + billing plumbing are
+                     retained for historical data; the wizard now feeds service
+                     billing from the checkbox instead of service.charge rows. -->
+
             </xpath>
 
         </field>
     </record>
 
-    <!-- Repair / Damage Invoice Wizard action from sale order.
-         (Lost material is invoiced from the Outstanding Products page; this
-         wizard now covers Repair + Damage only — see v19.0.1.27.6.) -->
+    <!-- Repair/Damage wizard action. Cog-menu binding REMOVED (v19.0.1.65.0):
+         reached via the unified Create Invoice wizard (kind = Repair + Damage),
+         which delegates to this model. Record kept (no binding) for clarity. -->
     <record id="action_damage_lost_invoice_wizard" model="ir.actions.act_window">
         <field name="name">Create Repair / Damage Invoice</field>
         <field name="res_model">damage.lost.invoice.wizard</field>
         <field name="view_mode">form</field>
         <field name="target">new</field>
-        <field name="binding_model_id" ref="sale.model_sale_order"/>
-        <field name="binding_view_types">form</field>
+    </record>
+
+    <!-- ================================================================
+         Sale Order List/Tree — add SP Reference column
+         ================================================================ -->
+    <record id="view_sale_order_tree_hksf_rental" model="ir.ui.view">
+        <field name="name">sale.order.list.hksf.rental</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='name']" position="after">
+                <field name="sp_reference" optional="show"/>
+            </xpath>
+        </field>
     </record>
 
     <!-- Sale Line Qty Update Wizard action -->
@@ -245,5 +346,48 @@
         <field name="binding_model_id" ref="sale.model_sale_order"/>
         <field name="binding_view_types">form</field>
     </record>
+
+    <!-- ================================================================
+         Active Rentals — monthly follow-up worklist
+         Native filter + dedicated action/menu under "To Invoice",
+         mirroring "Orders to Invoice" / "Orders to Upsell".
+         ================================================================ -->
+    <record id="view_sale_order_filter_active_rentals" model="ir.ui.view">
+        <field name="name">sale.order.search.active.rentals</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.sale_order_view_search_inherit_sale"/>
+        <field name="arch" type="xml">
+            <xpath expr="//search" position="inside">
+                <separator/>
+                <filter name="active_rentals"
+                        string="Active Rentals"
+                        domain="[('is_active_rental','=',True)]"
+                        help="Confirmed rentals with equipment still on site"/>
+                <filter name="group_active_customer"
+                        string="Customer"
+                        context="{'group_by':'partner_id'}"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_active_rentals" model="ir.actions.act_window">
+        <field name="name">Active Rentals</field>
+        <field name="res_model">sale.order</field>
+        <field name="view_mode">list,kanban,form</field>
+        <field name="domain">[('is_active_rental','=',True)]</field>
+        <field name="context">{'search_default_group_active_customer': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No active rentals</p>
+            <p>Confirmed rentals with equipment still on site (delivered minus
+               collected &gt; 0) appear here for monthly billing follow-up.
+               Orders drop off automatically once fully collected.</p>
+        </field>
+    </record>
+
+    <menuitem id="menu_active_rentals"
+              name="Active Rentals"
+              parent="sale.menu_sale_invoicing"
+              action="action_active_rentals"
+              sequence="15"/>
 
 </odoo>

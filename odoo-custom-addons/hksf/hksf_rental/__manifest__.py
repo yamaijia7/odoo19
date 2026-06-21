@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': "HKSF Rental",
-    'version': '19.0.1.27.9',
+    'version': '19.0.1.76.0',
     'category': 'Sales',
     'summary': "Consolidated HKSF rental: quotations, duration-based pricing, "
                "delivery/collection tracking and pro-rata rental invoicing.",
@@ -52,11 +52,26 @@ Features
         'views/product_template_view.xml',
         'views/product_view.xml',
         'views/product_category_view.xml',
+        # Linked-order wizard action must load BEFORE sale_order_view because
+        # the SO form header button references action_hksf_linked_order_wizard.
+        'wizard/linked_order_wizard_view.xml',
+        # Print-document wizard action (referenced by SO header button)
+        'wizard/print_report_wizard_view.xml',
+        # Top-up Delivery wizard action must load BEFORE sale_order_view because
+        # the SO form header button references action_hksf_so_topup_wizard.
+        'wizard/hksf_so_topup_wizard_views.xml',
+        # Unified Create Invoice dispatcher action — MUST load before
+        # sale_order_view.xml (SO header button references its action id).
+        'wizard/hksf_create_invoice_wizard_view.xml',
+        # Unified New Order launcher (Top-up / Linked) action — MUST load
+        # before sale_order_view.xml (SO header button references its action id).
+        'wizard/hksf_new_order_wizard_view.xml',
         'views/sale_order_view.xml',
         # Return/collection wizard actions must load BEFORE stock_picking_view
         # because the picking-form header buttons reference these actions by id.
         'wizard/return_move_select_view.xml',
         'wizard/return_move_collection_view.xml',
+        'views/truck_size_view.xml',
         'views/stock_picking_view.xml',
         'views/stock_move_view.xml',
         'views/delivery_return_history_view.xml',

@@ -13,6 +13,8 @@
                          material is invoiced from the Outstanding page. -->
                     <field name="invoice_type" invisible="1"/>
                     <field name="journal_id"/>
+                    <field name="date_from"/>
+                    <field name="date_to"/>
                 </group>
                 <separator string="Lines"/>
                 <field name="line_ids">

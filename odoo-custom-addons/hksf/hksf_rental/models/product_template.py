@@ -31,7 +31,7 @@ class ProductTemplate(models.Model):
     # ------------------------------------------------------------------
     ia_apply_minimum_charge = fields.Boolean(
         string='Apply Minimum Charge',
-        default=False,
+        default=True,
         help="When enabled, a minimum rental period (7 days weekly / 30 days monthly) "
              "is enforced when generating the delivery invoice credit for early returns.",
     )

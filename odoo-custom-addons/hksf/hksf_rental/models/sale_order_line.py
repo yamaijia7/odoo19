@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 from datetime import date
 from dateutil.relativedelta import relativedelta
-from odoo import models, fields, api
+from odoo import models, fields, api, _
+from odoo.exceptions import ValidationError
 
 
 class SaleOrderLine(models.Model):
@@ -63,6 +64,11 @@ class SaleOrderLine(models.Model):
 
     _inherit = 'sale.order.line'
 
+    # NOTE: price_unit is left as the NATIVE Odoo 19 field (it uses
+    # min_display_digits='Product Price'). To show pro-rated rates with more
+    # decimals, set the global 'Product Price' decimal accuracy to 5; no
+    # field-level display override is used here.
+
     # ------------------------------------------------------------------
     # Rental period
     # ------------------------------------------------------------------
@@ -112,6 +118,95 @@ class SaleOrderLine(models.Model):
         default='rental',
         copy=False,
     )
+
+    # ------------------------------------------------------------------
+    # Service order lines (round 3 model, round 6 = native qty_invoiced)
+    #
+    # "Service lines are just order lines (service-type products) to be
+    # invoiced on the next rental invoice." A single ``bill_on_next_invoice``
+    # checkbox marks a service-type line for billing. The delivery/billing
+    # wizard bills its REMAINING (uninvoiced) qty as a service invoice line
+    # linked to this order line via the NATIVE ``sale_line_ids`` m2m, so the
+    # standard ``qty_invoiced`` / ``invoice_status`` track it -- no custom
+    # invoiced-qty mirror is kept (removed in v19.0.1.73.0). The Order Lines
+    # list shows the native "Invoiced" (qty_invoiced) column instead.
+    # ------------------------------------------------------------------
+    is_service_line = fields.Boolean(
+        string='Is Service Line',
+        compute='_compute_is_service_line',
+        help="True when this order line is a service-type product (the only "
+             "kind eligible for 'Bill'). Drives column visibility on the Order "
+             "Lines list.",
+    )
+    bill_on_next_invoice = fields.Boolean(
+        string='Bill',
+        default=False,
+        copy=False,
+        help="Tick to bill this service line's REMAINING quantity (ordered "
+             "minus native qty_invoiced) on the next rental invoice created by "
+             "the delivery wizard. Only applies to service-type products; "
+             "rental lines are unaffected. Auto-ticked for new service lines; "
+             "stays on after billing -- once fully invoiced the line bills "
+             "nothing further (remaining qty 0).",
+    )
+
+    @api.depends('product_id', 'product_id.type', 'display_type')
+    def _compute_is_service_line(self):
+        for line in self:
+            line.is_service_line = bool(
+                not line.display_type
+                and line.product_id
+                and line.product_id.type == 'service'
+            )
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        """Auto-tick ``bill_on_next_invoice`` for NEW service-type lines.
+
+        Complements the product_id onchange so the default also applies to
+        programmatic / import creates (the onchange only fires in the form UI).
+        Only sets it when the caller did not pass the field explicitly and the
+        product is service-type -- never back-fills existing lines, never
+        touches non-service lines.
+        """
+        for vals in vals_list:
+            if vals.get('display_type') or 'bill_on_next_invoice' in vals:
+                continue
+            product_id = vals.get('product_id')
+            if not product_id:
+                continue
+            product = self.env['product.product'].browse(product_id)
+            if product.type == 'service':
+                vals['bill_on_next_invoice'] = True
+        return super().create(vals_list)
+
+    @api.constrains('bill_on_next_invoice', 'product_id')
+    def _check_service_invoice_policy(self):
+        """Wizard-billed service products MUST be invoice_policy='order'.
+
+        Native ``qty_invoiced`` reconciliation (which the round-6 wizard relies
+        on via the ``sale_line_ids`` link) only behaves correctly for ordered-
+        qty policy. A service product on 'delivery' policy would report 0
+        delivered, mismatching the remaining/over-invoiced display. Catch it at
+        order-edit time so the user fixes the product master rather than us
+        silently mutating it.
+        """
+        for line in self:
+            if (
+                not line.display_type
+                and line.bill_on_next_invoice
+                and line.product_id.type == 'service'
+                and line.product_id.invoice_policy != 'order'
+            ):
+                raise ValidationError(_(
+                    "Service product \"%s\" is billed by the rental invoice "
+                    "wizard and must use the \"Ordered quantities\" invoicing "
+                    "policy.\n\nIts current Invoicing Policy is \"Delivered "
+                    "quantities\", which breaks invoiced-quantity tracking. "
+                    "Open the product and set Invoicing Policy to \"Ordered "
+                    "quantities\", or untick \"Bill\" on this order line.",
+                    line.product_id.display_name,
+                ))
 
     # ------------------------------------------------------------------
     # Repair / lost pricing (from hksf_delivery_invoice)
@@ -306,3 +401,8 @@ class SaleOrderLine(models.Model):
                 self.line_type = self.product_id.line_type or 'rental'
             else:
                 self.line_type = 'sale'
+            # Auto-tick "Bill" for NEW service-type lines (user can untick).
+            # Service products are billed via the delivery wizard, so default
+            # them in; non-service lines are never auto-ticked.
+            if self.product_id.type == 'service':
+                self.bill_on_next_invoice = True

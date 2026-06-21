@@ -9,6 +9,17 @@
                  mirroring the Odoo 11 "Other Info" tab, instead of crowding
                  the company logo header. -->
             <xpath expr="//notebook" position="inside">
+                <page string="Rental Invoice Journals" name="hksf_rental_journals">
+                    <group>
+                        <group string="Per-Type Default Journals"
+                               help="Choose which sale journal each rental invoice type posts to so their sequence / numbering can be told apart. Leave blank to use the standard Sales journal. The standard Sale invoice always uses Odoo's default Sales journal.">
+                            <field name="hksf_rental_journal_id"/>
+                            <field name="hksf_repair_journal_id"/>
+                            <field name="hksf_lost_journal_id"/>
+                            <field name="hksf_service_journal_id"/>
+                        </group>
+                    </group>
+                </page>
                 <page string="Rental Report Images" name="hksf_report_images">
                     <group>
                         <group string="Company Header Logo"

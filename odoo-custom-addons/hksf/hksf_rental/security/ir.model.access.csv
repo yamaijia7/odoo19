@@ -1,6 +1,7 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_delivery_return_history_user,delivery.return.history user,model_delivery_return_history,base.group_user,1,1,1,1
 access_transport_charge_user,transport.charge user,model_transport_charge,base.group_user,1,1,1,1
+access_service_charge_user,service.charge user,model_service_charge,base.group_user,1,1,1,1
 access_collection_repair_damage_user,collection.repair.damage user,model_collection_repair_damage,base.group_user,1,1,1,1
 access_product_outstanding_user,product.outstanding user,model_product_outstanding,base.group_user,1,1,1,1
 access_return_move_select_wizard_user,return.move.select.wizard user,model_return_move_select_wizard,base.group_user,1,1,1,1
@@ -14,3 +15,11 @@ access_sale_line_qty_update_wizard_user,sale.line.qty.update.wizard user,model_s
 access_sale_line_qty_update_wizard_line_user,sale.line.qty.update.wizard.line user,model_sale_line_qty_update_wizard_line,base.group_user,1,1,1,1
 access_manual_month_update_wizard_user,manual.month.update.wizard user,model_manual_month_update_wizard,base.group_user,1,1,1,1
 access_collection_return_wizard_user,collection.return.wizard user,model_collection_return_wizard,base.group_user,1,1,1,1
+access_hksf_truck_size_user,hksf.truck.size user,model_hksf_truck_size,base.group_user,1,0,1,0
+access_hksf_truck_size_manager,hksf.truck.size manager,model_hksf_truck_size,stock.group_stock_manager,1,1,1,1
+access_hksf_linked_order_wizard_user,hksf.linked.order.wizard user,model_hksf_linked_order_wizard,base.group_user,1,1,1,1
+access_hksf_print_report_wizard_user,hksf.print.report.wizard user,model_hksf_print_report_wizard,base.group_user,1,1,1,1
+access_hksf_so_topup_wizard_user,hksf.so.topup.wizard user,model_hksf_so_topup_wizard,base.group_user,1,1,1,1
+access_hksf_so_topup_wizard_line_user,hksf.so.topup.wizard.line user,model_hksf_so_topup_wizard_line,base.group_user,1,1,1,1
+access_hksf_create_invoice_wizard_user,hksf.create.invoice.wizard user,model_hksf_create_invoice_wizard,base.group_user,1,1,1,1
+access_hksf_new_order_wizard_user,hksf.new.order.wizard user,model_hksf_new_order_wizard,base.group_user,1,1,1,1

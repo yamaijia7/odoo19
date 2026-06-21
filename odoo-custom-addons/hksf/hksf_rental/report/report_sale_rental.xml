@@ -2,20 +2,17 @@
 <odoo>
     <data>
 
-        <!-- ============================================================
-             Document body template (self-contained)
-             Header + body + footer are inlined in ONE template so the
-             local 'doc' variable is in a single scope. v19 QWeb does NOT
-             propagate a caller's local t-set 'doc' into a separately
-             t-call'ed layout template whose header runs before t-raw="0".
-             ============================================================ -->
-        <template id="report_sale_rental_document">
+        <!-- ================================================================
+             SHARED HEADER (snippet, t-call'd inline by both bodies)
+             v19 note: we do NOT use t-call + t-raw="0" for the body, because
+             a caller's local t-set "doc" does not propagate into a separately
+             t-call'd layout whose header runs before t-raw="0". Instead each
+             report template below is self-contained and t-call's these
+             header/footer SNIPPETS, which receive "doc" from the surrounding
+             scope (it is already set by the t-foreach in each wrapper).
+             ================================================================ -->
+        <template id="hksf_report_header">
             <t t-set="company" t-value="doc.company_id"/>
-            <!-- Currency: prefer the order's pricelist currency, fall back to the
-                 order/company currency so the monetary widget always has a
-                 singleton currency (pricelist may be empty in v19). -->
-            <t t-set="cur" t-value="doc.pricelist_id.currency_id or doc.currency_id or company.currency_id"/>
-            <!-- Proforma flag driven purely by context (avoids NameError in v19) -->
             <t t-set="is_pro_forma" t-value="env.context.get('proforma', False)"/>
             <div class="header">
                 <!-- Custom company header logo (full width) -->
@@ -49,7 +46,7 @@
                                 <strong>Our Ref:</strong>
                             </td>
                             <td width="39%" style="border:none; padding:1px 2px;">
-                                <span t-field="doc.name"/>
+                                <span t-out="doc.sp_reference or doc.name"/>
                             </td>
                             <td class="text-end" width="14%"
                                 style="border:none; padding:1px 2px;">
@@ -66,12 +63,16 @@
                             </td>
                             <td style="border:none; padding:1px 2px;">
                                 <t t-if="doc.partner_id.parent_id">
-                                    <strong>
-                                        <span t-field="doc.partner_id.parent_id.name"/>
-                                    </strong>
+                                    <strong><span t-field="doc.partner_id.parent_id.name"/></strong>
+                                    <t t-if="doc.partner_id.parent_id.company_name_cn">
+                                        <br/><span t-field="doc.partner_id.parent_id.company_name_cn"/>
+                                    </t>
                                 </t>
                                 <t t-else="">
                                     <strong><span t-field="doc.partner_id.name"/></strong>
+                                    <t t-if="doc.partner_id.company_name_cn">
+                                        <br/><span t-field="doc.partner_id.company_name_cn"/>
+                                    </t>
                                 </t>
                             </td>
                             <td class="text-end" style="border:none; padding:1px 2px;">
@@ -91,256 +92,38 @@
                                 <strong>Attn:</strong>
                             </td>
                             <td style="border:none; padding:1px 2px;">
-                                <!-- v19: res.partner.title (salutation) model was removed,
-                                     so the O11 'title.shortcut' prefix is dropped. -->
+                                <!-- v19: res.partner.title (salutation) removed; v19: mobile consolidated into phone. -->
                                 <span t-field="doc.partner_id.name"/>
-                                <!-- v19: res.partner.mobile removed (consolidated into phone). -->
                                 <t t-if="doc.partner_id.phone">
-                                    &amp;nbsp;–&amp;nbsp;<span t-field="doc.partner_id.phone"/>
+                                    &amp;nbsp;&#8211;&amp;nbsp;<span t-field="doc.partner_id.phone"/>
                                 </t>
                                 <t t-if="doc.partner_id.email">
                                     <br/><span t-field="doc.partner_id.email"/>
                                 </t>
                             </td>
                             <td class="text-end" style="border:none; padding:1px 2px;">
-                                <strong t-if="doc.partner_id.parent_id.phone">
-                                    Office Tel:
-                                </strong><br/>
-                                <strong t-if="doc.partner_id.parent_id.custom_fax">
-                                    Fax:
-                                </strong>
+                                <t t-set="tel_val" t-value="doc.partner_id.parent_id.phone or doc.partner_id.phone"/>
+                                <t t-set="fax_val" t-value="doc.partner_id.parent_id.custom_fax or doc.partner_id.custom_fax"/>
+                                <strong t-if="tel_val">Office Tel:</strong><br t-if="tel_val"/>
+                                <strong t-if="fax_val">Fax:</strong>
                             </td>
                             <td style="border:none; padding:1px 2px;">
-                                <t t-if="doc.partner_id.parent_id.phone">
-                                    <span t-field="doc.partner_id.parent_id.phone"/>
-                                </t><br/>
-                                <t t-if="doc.partner_id.parent_id.custom_fax">
-                                    <span t-field="doc.partner_id.parent_id.custom_fax"/>
-                                </t>
+                                <t t-set="tel_val2" t-value="doc.partner_id.parent_id.phone or doc.partner_id.phone"/>
+                                <t t-set="fax_val2" t-value="doc.partner_id.parent_id.custom_fax or doc.partner_id.custom_fax"/>
+                                <t t-if="tel_val2"><span t-out="tel_val2"/></t><br t-if="tel_val2"/>
+                                <t t-if="fax_val2"><span t-out="fax_val2"/></t>
                             </td>
                         </tr>
                     </table>
                 </div>
             </div><!-- /header -->
+        </template>
 
-            <!-- Page body -->
-            <div class="article">
-                <div class="page hksf-rental-body" t-att-style="'font-size:%spx;' % (doc.body_font_size or '14')">
-                    <!-- Compact line tables + readable (white-on-black) headers.
-                         Scoped to .hksf-rental-body so the header info table is
-                         unaffected. Bootstrap's .table colour cascade overrides an
-                         inline <tr> colour in wkhtmltopdf, so we force white on the
-                         header cells explicitly here. -->
-                    <style>
-                        .hksf-rental-body table.table { margin-bottom:4px; }
-                        .hksf-rental-body table.table td,
-                        .hksf-rental-body table.table th {
-                            padding:1px 4px !important;
-                            line-height:1.1 !important;
-                            vertical-align:middle;
-                        }
-                        .hksf-rental-body table.table thead tr {
-                            background-color:#000000 !important;
-                        }
-                        .hksf-rental-body table.table thead th {
-                            background-color:#000000 !important;
-                            color:#ffffff !important;
-                        }
-                        .hksf-rental-body p { margin:2px 0; }
-                    </style>
-                    <div class="oe_structure"/>
-
-                    <!-- Subject line -->
-                    <t t-if="doc.subject_line">
-                        <div class="row" style="border-bottom:2px solid black;"/>
-                        <br/>
-                        <h4 class="text-center">
-                            <strong>RE : <u><span t-field="doc.subject_line"/></u></strong>
-                        </h4>
-                        <h5 class="text-center">
-                            <strong><span t-field="doc.subject_description"/></strong>
-                        </h5>
-                    </t>
-
-                    <!-- Rental section -->
-                    <t t-set="rental_lines"
-                       t-value="doc.order_line.filtered(lambda l: l.line_type == 'rental')"/>
-                    <t t-if="rental_lines">
-                        <p class="text-center"><strong>Rental</strong></p>
-                        <table class="table table-bordered table-condensed">
-                            <thead>
-                                <tr style="background-color:#000000; color:#ffffff;">
-                                    <th class="text-center">No</th>
-                                    <th class="text-center">Ref</th>
-                                    <th class="text-center">Description</th>
-                                    <th class="text-center">Area/Qty</th>
-                                    <t t-if="doc.custom_sale_type == 'rent'">
-                                        <th class="text-center"
-                                            t-if="doc.charge_type == 'monthly'">Hire/Mth/Pce</th>
-                                        <th class="text-center"
-                                            t-if="doc.charge_type == 'monthly'">Mths</th>
-                                        <th class="text-center"
-                                            t-if="doc.charge_type == 'weekly'">Hire/Week/Pce</th>
-                                        <th class="text-center"
-                                            t-if="doc.charge_type == 'weekly'">Weeks</th>
-                                        <th class="text-center">Hire Amount</th>
-                                    </t>
-                                    <t t-else="">
-                                        <th class="text-center">Unit Rate</th>
-                                        <th class="text-center">Amount</th>
-                                    </t>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <t t-set="idx" t-value="1"/>
-                                <t t-set="total_rent" t-value="0"/>
-                                <t t-foreach="rental_lines" t-as="line">
-                                    <tr>
-                                        <td class="text-end"><span t-out="idx"/></td>
-                                        <td><span t-field="line.product_id.default_code"/></td>
-                                        <td><span t-field="line.name"/></td>
-                                        <td class="text-end">
-                                            <t t-if="doc.custom_sale_type == 'sale'">
-                                                <span t-field="line.product_uom_qty"/>
-                                            </t>
-                                        </td>
-                                        <td class="text-end">
-                                            <t t-if="line.price_unit">
-                                                <span t-field="line.price_unit"
-                                                      t-options='{"widget":"monetary","display_currency":cur}'/>/<span t-field="line.product_uom_id"/>
-                                            </t>
-                                        </td>
-                                        <td t-if="doc.custom_sale_type == 'rent'"
-                                            class="text-end">
-                                            <span t-field="line.month"/>
-                                        </td>
-                                        <td class="text-end">
-                                            <span t-if="line.price_subtotal"
-                                                  t-field="line.price_subtotal"
-                                                  t-options='{"widget":"monetary","display_currency":cur}'/>
-                                        </td>
-                                    </tr>
-                                    <t t-set="idx" t-value="idx + 1"/>
-                                    <t t-set="total_rent" t-value="total_rent + line.price_subtotal"/>
-                                </t>
-                                <!-- Rental subtotal row -->
-                                <tr>
-                                    <td class="text-end"
-                                        t-att-colspan="doc.custom_sale_type == 'sale' and 5 or 6">
-                                        <strong>Total Rent:</strong>
-                                    </td>
-                                    <td class="text-end">
-                                        <span t-out="total_rent"
-                                              t-options='{"widget":"monetary","display_currency":cur}'/>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </t>
-
-                    <!-- Sale section -->
-                    <t t-set="sale_lines"
-                       t-value="doc.order_line.filtered(lambda l: l.line_type == 'sale')"/>
-                    <t t-if="sale_lines">
-                        <p class="text-center"><strong>Sale</strong></p>
-                        <table class="table table-bordered table-condensed">
-                            <thead>
-                                <tr style="background-color:#000000; color:#ffffff;">
-                                    <th class="text-center">No</th>
-                                    <th class="text-center">Ref</th>
-                                    <th class="text-center">Description</th>
-                                    <th class="text-center">Area/Qty</th>
-                                    <th class="text-center">Unit Rate</th>
-                                    <th class="text-center">Amount</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <t t-set="idx2" t-value="1"/>
-                                <t t-set="total_sale" t-value="0"/>
-                                <t t-foreach="sale_lines" t-as="line">
-                                    <tr>
-                                        <td class="text-end"><span t-out="idx2"/></td>
-                                        <td><span t-field="line.product_id.default_code"/></td>
-                                        <td><span t-field="line.name"/></td>
-                                        <td class="text-end">
-                                            <span t-field="line.product_uom_qty"/>
-                                        </td>
-                                        <td class="text-end">
-                                            <t t-if="line.price_unit">
-                                                <span t-field="line.price_unit"
-                                                      t-options='{"widget":"monetary","display_currency":cur}'/>/<span t-field="line.product_uom_id"/>
-                                            </t>
-                                        </td>
-                                        <td class="text-end">
-                                            <span t-if="line.price_subtotal"
-                                                  t-field="line.price_subtotal"
-                                                  t-options='{"widget":"monetary","display_currency":cur}'/>
-                                        </td>
-                                    </tr>
-                                    <t t-set="idx2" t-value="idx2 + 1"/>
-                                    <t t-set="total_sale" t-value="total_sale + line.price_subtotal"/>
-                                </t>
-                                <tr>
-                                    <td class="text-end" colspan="5">
-                                        <strong>Total Sales:</strong>
-                                    </td>
-                                    <td class="text-end">
-                                        <span t-out="total_sale"
-                                              t-options='{"widget":"monetary","display_currency":cur}'/>
-                                    </td>
-                                </tr>
-                                <!-- Grand total only shown here when sale section exists -->
-                                <tr>
-                                    <td class="text-end" colspan="5">
-                                        <strong>
-                                            <span t-if="doc.grand_total_label"
-                                                  t-out="doc.grand_total_label"/>
-                                            <span t-else="">Grand Total</span>:
-                                        </strong>
-                                    </td>
-                                    <td class="text-end">
-                                        <span t-field="doc.amount_total"
-                                              t-options='{"widget":"monetary","display_currency":cur}'/>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </t>
-
-                    <!-- Grand total row when no sale section -->
-                    <t t-if="rental_lines and not sale_lines">
-                        <table class="table table-bordered table-condensed">
-                            <tbody>
-                                <tr>
-                                    <td class="text-end" colspan="6">
-                                        <strong>
-                                            <span t-if="doc.grand_total_label"
-                                                  t-out="doc.grand_total_label"/>
-                                            <span t-else="">Grand Total</span>:
-                                        </strong>
-                                    </td>
-                                    <td class="text-end">
-                                        <span t-field="doc.amount_total"
-                                              t-options='{"widget":"monetary","display_currency":cur}'/>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </t>
-
-                    <!-- Remarks / Notes -->
-                    <div class="row mt-2">
-                        <div class="col-11 text-start">
-                            <strong>Remarks:</strong><br/>
-                            <span t-field="doc.note"/>
-                        </div>
-                    </div>
-
-                    <div class="oe_structure"/>
-                </div>
-            </div><!-- /article -->
-
-            <!-- Footer: chop-and-sign + company stamp + salesperson signature -->
+        <!-- ================================================================
+             SHARED FOOTER (snippet, t-call'd inline by both bodies)
+             ================================================================ -->
+        <template id="hksf_report_footer">
+            <t t-set="company" t-value="doc.company_id"/>
             <div class="footer">
                 <table class="table" style="margin-bottom:0;">
                     <tr>
@@ -398,13 +181,405 @@
             </div><!-- /footer -->
         </template>
 
-        <!-- ============================================================
-             Wrapper iterating over docs
-             ============================================================ -->
+        <!-- ================================================================
+             REPORT 1 — FULLY-CUSTOM RENTAL BODY (ported from legacy)
+             Header + custom Rental/Sale section split + footer, all inline.
+             ================================================================ -->
+        <template id="report_sale_rental_document">
+            <t t-set="company" t-value="doc.company_id"/>
+            <t t-set="is_pro_forma" t-value="env.context.get('proforma', False)"/>
+            <t t-call="hksf_rental.hksf_report_header"/>
+
+            <div class="article">
+                <div class="page hksf-rental-body"
+                     t-att-style="'font-size:%spx;' % (doc.body_font_size or '14')">
+                    <style>
+                        .hksf-rental-body table.hksf-rental-table { margin-bottom:6px; }
+                        .hksf-rental-body table.hksf-rental-table thead th {
+                            background-color:#000000 !important;
+                            color:#ffffff !important;
+                            font-size:inherit !important;
+                            font-weight:bold !important;
+                            padding:3px 6px !important;
+                            line-height:1.15 !important;
+                            -webkit-print-color-adjust:exact;
+                            print-color-adjust:exact;
+                        }
+                        .hksf-rental-body table.hksf-rental-table tbody td {
+                            font-size:inherit !important;
+                            padding:1px 6px !important;
+                            line-height:1.15 !important;
+                        }
+                    </style>
+                    <div class="oe_structure"/>
+
+                    <!-- Subject line -->
+                    <t t-if="doc.subject_line">
+                        <div class="row" style="border-bottom:2px solid black;"/>
+                        <br/>
+                        <h4 class="text-center">
+                            <strong>RE : <u><span t-field="doc.subject_line"/></u></strong>
+                        </h4>
+                        <h5 class="text-center">
+                            <strong><span t-field="doc.subject_description"/></strong>
+                        </h5>
+                    </t>
+
+                    <!-- ============================================================
+                         Rental Quote line table
+                         Fixed columns, all order lines in one table.
+                         No rent/sale conditional, no section heading.
+                         ============================================================ -->
+                    <table class="table table-bordered table-condensed hksf-rental-table">
+                        <thead>
+                            <tr>
+                                <th class="text-center">No</th>
+                                <th class="text-center">Ref</th>
+                                <th class="text-center">Description</th>
+                                <th class="text-center">Hire/Month</th>
+                                <th class="text-center">Qty</th>
+                                <th class="text-center">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <t t-set="idx" t-value="1"/>
+                            <t t-foreach="doc.order_line" t-as="line">
+                                <tr t-att-style="'background-color:#f2f2f2; -webkit-print-color-adjust:exact; print-color-adjust:exact;' if (line_index % 2 == 1) else ''">
+                                    <td class="text-end"><span t-out="idx"/></td>
+                                    <td><span t-field="line.product_id.default_code"/></td>
+                                    <td><span t-field="line.name"/></td>
+                                    <td class="text-end">
+                                        <t t-if="line.price_unit">
+                                            <span t-field="line.price_unit"
+                                                  t-options='{"widget":"monetary","display_currency":doc.currency_id}'/>/<span t-field="line.product_uom_id"/>
+                                        </t>
+                                    </td>
+                                    <td class="text-end">
+                                        <span t-field="line.month"/>
+                                    </td>
+                                    <td class="text-end">
+                                        <span t-if="line.price_subtotal"
+                                              t-field="line.price_subtotal"
+                                              t-options='{"widget":"monetary","display_currency":doc.currency_id}'/>
+                                    </td>
+                                </tr>
+                                <t t-set="idx" t-value="idx + 1"/>
+                            </t>
+                            <!-- Grand total row -->
+                            <tr>
+                                <td class="text-end" colspan="5">
+                                    <strong>
+                                        <span t-if="doc.grand_total_label"
+                                              t-out="doc.grand_total_label"/>
+                                        <span t-else="">Grand Total</span>:
+                                    </strong>
+                                </td>
+                                <td class="text-end">
+                                    <span t-field="doc.amount_total"
+                                          t-options='{"widget":"monetary","display_currency":doc.currency_id}'/>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <!-- Remarks / Notes -->
+                    <div class="row mt-2">
+                        <div class="col-11 text-start">
+                            <strong>Remarks:</strong><br/>
+                            <span t-field="doc.note"/>
+                        </div>
+                    </div>
+
+                    <div class="oe_structure"/>
+                </div>
+            </div><!-- /article -->
+
+            <t t-call="hksf_rental.hksf_report_footer"/>
+        </template>
+
+        <!-- ================================================================
+             REPORT 2 — NATIVE BODY for EVERYTHING ELSE (sales / non-rental)
+             Same custom header + footer, Odoo 19 native sale-order line table.
+             ================================================================ -->
+        <template id="report_sale_native_document">
+            <t t-set="company" t-value="doc.company_id"/>
+            <t t-set="is_pro_forma" t-value="env.context.get('proforma', False)"/>
+            <t t-call="hksf_rental.hksf_report_header"/>
+
+            <div class="article">
+                <div class="page hksf-rental-body"
+                     t-att-style="'font-size:%spx;' % (doc.body_font_size or '14')">
+                    <t t-set="report_type" t-value="report_type or 'pdf'"/>
+
+                    <style>
+                        .hksf-rental-body table.o_main_table { margin-bottom:6px; }
+                        .hksf-rental-body table.o_main_table thead th {
+                            font-size:1.15em !important;
+                            font-weight:700 !important;
+                            border-bottom:1px solid #000 !important;
+                            padding:3px 6px !important;
+                        }
+                        .hksf-rental-body table.o_main_table tbody td {
+                            padding:1px 6px !important;
+                            line-height:1.15 !important;
+                            vertical-align:top;
+                        }
+                        .hksf-rental-body table.o_main_table tr.o_line_section td {
+                            background-color:#d9d9d9 !important;
+                            color:#000000 !important;
+                            font-weight:700 !important;
+                            padding:4px 6px !important;
+                            border-top:8px solid #ffffff !important;
+                        }
+                        .hksf-rental-body table.o_main_table tbody tr:first-child.o_line_section td {
+                            border-top:0 !important;
+                        }
+                        .hksf-rental-body table.o_main_table tr.o_line_note td {
+                            font-style:italic !important;
+                        }
+                    </style>
+
+                    <div class="oe_structure"/>
+
+                    <!-- Custom subject line (RE: ...) -->
+                    <t t-if="doc.subject_line">
+                        <div class="row" style="border-bottom:2px solid black;"/>
+                        <br/>
+                        <h5 class="text-center">
+                            <strong>RE : <u><span t-field="doc.subject_line"/></u></strong>
+                        </h5>
+                        <h6 class="text-center">
+                            <strong><span t-field="doc.subject_description"/></strong>
+                        </h6>
+                    </t>
+
+                    <!-- Core Odoo 19 line table (sections / subsections / notes) -->
+                    <t t-set="lines_to_report" t-value="doc._get_order_lines_to_report()"/>
+                    <t t-set="display_discount" t-value="any(l.discount > 0 for l in lines_to_report)"/>
+                    <t t-set="hide_taxes_details" t-value="False"/>
+                    <t t-set="display_taxes" t-value="not hide_taxes_details and any(l._has_taxes() for l in lines_to_report)"/>
+
+                    <div class="oe_structure"/>
+                    <table class="o_has_total_table table o_main_table table-borderless">
+                        <thead style="display: table-row-group">
+                            <tr>
+                                <th name="th_description" class="text-start">Description</th>
+                                <th name="th_quantity" class="text-end text-nowrap">Quantity</th>
+                                <th name="th_priceunit" class="text-end text-nowrap">Unit Price</th>
+                                <th name="th_discount" t-if="display_discount" class="text-end">
+                                    <span>Disc.%</span>
+                                </th>
+                                <th name="th_taxes" t-if="display_taxes" class="text-end">
+                                    <span>Taxes</span>
+                                </th>
+                                <th name="th_subtotal" class="text-end">
+                                    <span>Amount</span>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody class="sale_tbody">
+
+                            <t t-set="current_section" t-value="None"/>
+                            <t t-set="current_subsection" t-value="None"/>
+                            <t t-set="price_field" t-value="'price_total' if (hide_taxes_details or doc.company_price_include == 'tax_included') else 'price_subtotal'"/>
+
+                            <t t-foreach="lines_to_report" t-as="line">
+
+                                <t t-set="is_note" t-value="line.display_type == 'line_note'"/>
+                                <t t-set="is_section" t-value="line.display_type == 'line_section'"/>
+                                <t t-set="is_subsection" t-value="line.display_type == 'line_subsection'"/>
+                                <t t-set="is_combo" t-value="line.product_type == 'combo'"/>
+
+                                <t t-if="is_section">
+                                    <t t-set="current_section" t-value="line"/>
+                                    <t t-set="current_subsection" t-value="None"/>
+                                    <t t-set="line_padding" t-value="0"/>
+                                    <t t-set="collapse_prices" t-value="line.collapse_prices"/>
+                                </t>
+                                <t t-elif="is_subsection">
+                                    <t t-set="current_subsection" t-value="line"/>
+                                    <t t-set="line_padding" t-value="2"/>
+                                    <t t-set="collapse_prices" t-value="collapse_prices or line.collapse_prices"/>
+                                </t>
+                                <t t-else="">
+                                    <t t-set="line_padding" t-value="3 if current_subsection else (2 if current_section else 0)"/>
+                                </t>
+
+                                <t t-if="line.combo_item_id">
+                                    <t t-set="line_padding" t-value="line_padding + 1"/>
+                                </t>
+
+                                <t t-set="padding_class" t-value="line_padding and ('px-' + str(line_padding)) or ''"/>
+                                <t t-set="show_section_total" t-value="is_section or not line.parent_id.collapse_prices"/>
+
+                                <t t-if="not line.collapse_composition">
+                                    <tr t-if="is_section or is_subsection" name="tr_section"
+                                        t-att-class="'fw-bolder o_line_section' if is_section else 'fw-bold o_line_subsection'">
+                                        <t t-set="show_section_total"
+                                           t-value="((is_section or not line.parent_id.collapse_prices) and not line.is_downpayment)"/>
+                                        <t t-set="section_name_colspan"
+                                           t-value="3 + (1 if display_discount else 0) + (1 if display_taxes else 0)"/>
+                                        <t t-if="not show_section_total">
+                                            <t t-set="section_name_colspan" t-value="99"/>
+                                        </t>
+                                        <td name="td_section_name" t-att-colspan="section_name_colspan" t-att-class="padding_class">
+                                            <span t-field="line.name">A section title</span>
+                                        </td>
+                                        <td t-if="show_section_total" name="td_section_price" class="text-end o_price_total">
+                                            <span name="price_subtotal_section" t-out="line._get_section_totals(price_field)"
+                                                  class="text-nowrap"
+                                                  t-options="{'widget': 'monetary', 'display_currency': doc.currency_id}">27.00</span>
+                                        </td>
+                                    </tr>
+                                    <tr t-elif="is_note" name="tr_note" class="fst-italic o_line_note">
+                                        <td name="td_note_name" colspan="99" t-att-class="padding_class">
+                                            <span t-field="line.name">A note, whose content usually applies to the section or product above.</span>
+                                        </td>
+                                    </tr>
+                                    <tr t-elif="is_combo" name="tr_combo" class="fw-bold o_line_subsection">
+                                        <td name="td_combo_name"
+                                            t-att-colspan="3 + (1 if display_discount else 0) + (1 if display_taxes else 0)"
+                                            t-att-class="padding_class">
+                                            <span t-field="line.name">Combo Product</span>
+                                            x <span t-field="line.product_uom_qty" t-options="{'widget': 'integer'}"/>
+                                        </td>
+                                        <td name="td_combo_price" class="text-end o_price_total">
+                                            <span t-if="not collapse_prices" name="price_subtotal_combo"
+                                                  t-out="line._get_combo_totals(price_field)" class="text-nowrap"
+                                                  t-options="{'widget': 'monetary', 'display_currency': doc.currency_id}">27.00</span>
+                                        </td>
+                                    </tr>
+                                    <tr t-else="" name="tr_product">
+                                        <td name="td_product_name" t-att-class="padding_class">
+                                            <t t-set="_prod_name" t-value="line.product_id.display_name or ''"/>
+                                            <t t-set="_full" t-value="line.name or ''"/>
+                                            <t t-set="_desc"
+                                               t-value="_full[len(_prod_name):].lstrip(' \n\t') if (_prod_name and _full.startswith(_prod_name)) else _full"/>
+                                            <t t-if="_desc">
+                                                <t t-foreach="_desc.split('\n')" t-as="_ln">
+                                                    <span t-out="_ln">Description line</span><br t-if="not _ln_last"/>
+                                                </t>
+                                            </t>
+                                        </td>
+                                        <td name="td_product_quantity" class="o_td_quantity text-end">
+                                            <span t-field="line.product_uom_qty" class="text-nowrap">3</span>
+                                            <span t-field="line.product_uom_id">units</span>
+                                            <span t-if="line.product_uom_id != line.product_id.uom_id" class="text-muted small">
+                                                <t t-set="quantity_in_product_uom" t-value="line.product_uom_id._compute_quantity(line.product_uom_qty, line.product_id.uom_id)"/>
+                                                <br/><span t-out="quantity_in_product_uom" t-options="{'widget': 'float', 'decimal_precision': 'Product Unit'}"/> <span t-field="line.product_id.uom_id"/>
+                                            </span>
+                                        </td>
+                                        <td name="td_product_priceunit" class="text-end text-nowrap">
+                                            <span t-if="not collapse_prices and line.discount &lt; 0"
+                                                  t-out="(1 - line.discount / 100.0) * line.price_unit"
+                                                  t-options='{"widget": "float", "decimal_precision": "Product Price"}'/>
+                                            <span t-elif="not collapse_prices" t-field="line.price_unit">25.00</span>
+                                        </td>
+                                        <td t-if="display_discount" name="td_product_discount" class="text-end">
+                                            <t t-if="not collapse_prices">
+                                                <span t-if="line.discount > 0" t-field="line.discount">-</span>
+                                            </t>
+                                        </td>
+                                        <t t-set="taxes" t-value="', '.join(tax.tax_label for tax in line.tax_ids if tax.tax_label)"/>
+                                        <td t-if="display_taxes" name="td_product_taxes" t-attf-class="text-end {{ 'text-nowrap' if len(taxes) &lt; 10 else '' }}">
+                                            <span t-out="taxes">Tax 15%</span>
+                                        </td>
+                                        <td name="td_product_subtotal" class="text-end o_price_total">
+                                            <t t-if="not line.is_downpayment and not collapse_prices">
+                                                <span t-if="price_field == 'price_subtotal'" t-field="line.price_subtotal">27.00</span>
+                                                <span t-else="" t-field="line.price_total">27.00</span>
+                                            </t>
+                                        </td>
+                                    </tr>
+                                </t>
+                                <t t-else="">
+                                    <tr t-foreach="line._get_grouped_section_summary(display_taxes)" t-as="section_line"
+                                        name="tr_section_group" class="o_line_section">
+                                        <td name="td_section_group_name" t-att-class="padding_class">
+                                            <span t-field="line.name">Section Summary</span>
+                                        </td>
+                                        <td name="td_section_group_quantity" class="text-end text-nowrap">
+                                            <span>1.00 Units</span>
+                                        </td>
+                                        <td name="td_section_group_priceunit" class="text-end text-nowrap">
+                                            <span t-if="show_section_total" name="price_subtotal_section_grouped"
+                                                  t-out="section_line['price_subtotal']"
+                                                  t-options="{'widget': 'monetary', 'display_currency': doc.currency_id}">25.00</span>
+                                        </td>
+                                        <td t-if="display_discount" name="td_section_group_discount">
+                                            <t t-set="aggregated_discount" t-value="section_line.get('discount', 0)"/>
+                                            <span t-if="aggregated_discount" t-out="aggregated_discount">-</span>
+                                        </td>
+                                        <td t-if="display_taxes" name="td_section_group_taxes"
+                                            t-attf-class="text-end {{ 'text-nowrap' if len(section_line['tax_labels']) &lt; 10 else '' }}">
+                                            <span t-out="', '.join(section_line['tax_labels'])">Tax 15%</span>
+                                        </td>
+                                        <td name="td_section_group_total" class="text-end o_price_total">
+                                            <span t-if="show_section_total" t-out="section_line[price_field]"
+                                                  t-options="{'widget': 'monetary', 'display_currency': doc.currency_id}">30.00</span>
+                                        </td>
+                                    </tr>
+                                </t>
+                            </t>
+                        </tbody>
+                    </table>
+
+                    <!-- Core tax-totals summary -->
+                    <div class="clearfix" name="so_total_summary">
+                        <div id="total" class="row mt-n3" name="total">
+                            <div t-attf-class="#{'col-6' if report_type != 'html' else 'col-sm-7 col-md-6'} ms-auto">
+                                <table class="o_total_table table table-borderless">
+                                    <t t-call="sale.document_tax_totals">
+                                        <t t-set="tax_totals" t-value="doc.tax_totals"/>
+                                        <t t-set="currency" t-value="doc.currency_id"/>
+                                    </t>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="oe_structure"/>
+
+                    <!-- Order note / terms -->
+                    <div>
+                        <span t-field="doc.note"
+                              t-attf-style="#{'text-align:justify;text-justify:inter-word;' if doc.company_id.terms_type != 'html' else ''}"
+                              name="order_note"/>
+                        <p t-if="not is_html_empty(doc.payment_term_id.note)">
+                            <span t-field="doc.payment_term_id.note">The payment should also be transmitted with love</span>
+                        </p>
+                        <div class="oe_structure"/>
+                        <p t-if="doc.fiscal_position_id and not is_html_empty(doc.fiscal_position_id.sudo().note)"
+                           id="fiscal_position_remark">
+                            <strong>Fiscal Position Remark:</strong>
+                            <span t-field="doc.fiscal_position_id.sudo().note">No further requirements for this payment</span>
+                        </p>
+                    </div>
+
+                    <div class="oe_structure"/>
+                </div>
+            </div><!-- /article -->
+
+            <t t-call="hksf_rental.hksf_report_footer"/>
+        </template>
+
+        <!-- ================================================================
+             WRAPPER 1 — Rental report (fully-custom body)
+             ================================================================ -->
         <template id="report_sale_rental">
             <t t-call="web.html_container">
                 <t t-foreach="docs" t-as="doc">
                     <t t-call="hksf_rental.report_sale_rental_document"/>
+                </t>
+            </t>
+        </template>
+
+        <!-- ================================================================
+             WRAPPER 2 — Sales report for everything else (native body)
+             ================================================================ -->
+        <template id="report_sale_native">
+            <t t-call="web.html_container">
+                <t t-foreach="docs" t-as="doc">
+                    <t t-call="hksf_rental.report_sale_native_document"/>
                 </t>
             </t>
         </template>

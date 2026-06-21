@@ -26,6 +26,12 @@ class DamageLostInvoiceWizard(models.TransientModel):
         string='Journal',
         domain=[('type', '=', 'sale')],
     )
+    # Optional billing period: repair/damage is generally billed monthly, so the
+    # user can restrict the pulled lines to collections whose date falls within
+    # [date_from, date_to]. Both blank = pull everything uninvoiced (original
+    # behaviour). Filtering is on the collection picking's date.
+    date_from = fields.Date(string='From Date')
+    date_to = fields.Date(string='To Date')
     line_ids = fields.One2many(
         'damage.lost.invoice.wizard.line',
         'wizard_id',
@@ -39,15 +45,15 @@ class DamageLostInvoiceWizard(models.TransientModel):
         if active_id:
             res['sale_order_id'] = active_id
             order = self.env['sale.order'].browse(active_id)
-            journal = self.env['account.journal'].search([
-                ('type', '=', 'sale'),
-                ('company_id', '=', (order.company_id or self.env.company).id),
-            ], limit=1)
+            company = order.company_id or self.env.company
+            # Combined Repair + Damage invoice -> repair/damage journal
+            # (falls back to standard Sales when not configured).
+            journal = company._hksf_journal_for('repair')
             if journal:
                 res['journal_id'] = journal.id
         return res
 
-    @api.onchange('sale_order_id', 'invoice_type')
+    @api.onchange('sale_order_id', 'invoice_type', 'date_from', 'date_to')
     def _onchange_order(self):
         self.line_ids = [(5, 0, 0)]
         if not self.sale_order_id:
@@ -60,15 +66,40 @@ class DamageLostInvoiceWizard(models.TransientModel):
             wanted = ('repair', 'damage')
         else:
             wanted = (invoice_type,)
+        date_from = self.date_from
+        date_to = self.date_to
+
+        def _in_period(line):
+            """True when the line's collection date falls in [from, to].
+            Lines with no resolvable collection date are INCLUDED (so manual
+            lines / legacy data are never silently dropped)."""
+            if not date_from and not date_to:
+                return True
+            picking = line.collection_picking_id
+            ldate = (picking.scheduled_date_only or
+                     (picking.date_done.date() if picking.date_done else False))
+            if not ldate:
+                return True
+            if date_from and ldate < date_from:
+                return False
+            if date_to and ldate > date_to:
+                return False
+            return True
+
+        # Partial-lost tracking: a line stays available until its cumulative
+        # invoiced_qty reaches qty. We pull lines with remaining > 0 and
+        # pre-fill the wizard qty with the REMAINING amount (not the full qty),
+        # so repeated runs bill the outstanding balance over several invoices.
         uninvoiced = self.sale_order_id.collection_lost_material_ids.filtered(
-            lambda l: not l.invoice_id and l.type in wanted
+            lambda l: (l.qty - (l.invoiced_qty or 0.0)) > 0.0
+            and l.type in wanted and _in_period(l)
         )
         self.line_ids = [
             (0, 0, {
                 'damage_line_id': l.id,
                 'product_id': l.product_id.id,
                 'line_type': l.type,
-                'qty': l.qty,
+                'qty': l.qty - (l.invoiced_qty or 0.0),
                 'price_unit': l.price_unit,
                 'name': l.internal_ref or l.product_id.name,
                 'include': True,
@@ -80,6 +111,25 @@ class DamageLostInvoiceWizard(models.TransientModel):
         lines_to_invoice = self.line_ids.filtered(lambda l: l.include)
         if not lines_to_invoice:
             raise UserError(_("No lines selected to invoice."))
+
+        # Overbill guard: never invoice more than the remaining (qty -
+        # invoiced_qty) on any source line. Protects against partial-tracking
+        # drift / accidental over-entry.
+        for wline in lines_to_invoice:
+            src = wline.damage_line_id
+            if src:
+                remaining = src.qty - (src.invoiced_qty or 0.0)
+                if wline.qty > remaining + 1e-6:
+                    raise UserError(_(
+                        "Cannot invoice %(want)s of '%(name)s' - only "
+                        "%(rem)s remaining (total %(total)s, already "
+                        "invoiced %(done)s).",
+                        want=wline.qty,
+                        name=wline.name or (src.product_id.display_name),
+                        rem=remaining,
+                        total=src.qty,
+                        done=src.invoiced_qty or 0.0,
+                    ))
 
         order = self.sale_order_id
         # Combined invoices are stamped 'damage' (the R&D bucket) for reporting;
@@ -94,7 +144,9 @@ class DamageLostInvoiceWizard(models.TransientModel):
             'invoice_date': fields.Date.today(),
             'rental_sale_id': order.id,
             'rental_invoice_type': move_invoice_type,
-            'journal_id': self.journal_id.id if self.journal_id else False,
+            'journal_id': self.journal_id.id if self.journal_id else (
+                order.company_id._hksf_journal_for('repair').id
+            ),
             'company_id': order.company_id.id,
             'invoice_origin': order.name,
             'ref': order.client_order_ref or order.name,
@@ -142,8 +194,14 @@ class DamageLostInvoiceWizard(models.TransientModel):
             }
             self.env['account.move.line'].sudo().create(line_vals)
 
+            # Partial-lost tracking: accumulate invoiced_qty on the source
+            # line. Only stamp invoice_id (mark fully done) once the line is
+            # fully consumed, so any remaining qty stays billable later.
             if wline.damage_line_id:
-                wline.damage_line_id.invoice_id = invoice.id
+                src = wline.damage_line_id
+                src.invoiced_qty = (src.invoiced_qty or 0.0) + wline.qty
+                if src.invoiced_qty >= src.qty - 1e-6:
+                    src.invoice_id = invoice.id
 
         return {
             'type': 'ir.actions.act_window',

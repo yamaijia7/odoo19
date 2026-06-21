@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_hksf_new_order_wizard_form" model="ir.ui.view">
+        <field name="name">hksf.new.order.wizard.form</field>
+        <field name="model">hksf.new.order.wizard</field>
+        <field name="arch" type="xml">
+            <form string="New Order">
+                <field name="order_id" invisible="1"/>
+                <field name="custom_sale_type" invisible="1"/>
+                <group>
+                    <field name="mode" widget="radio"/>
+                    <field name="copy_lines"
+                           invisible="mode != 'linked'"/>
+                </group>
+                <div class="text-muted"
+                     invisible="mode != 'topup'">
+                    Opens the Top-up grid where you set the additional
+                    quantities to deliver against this rental order.
+                </div>
+                <footer>
+                    <button name="action_apply" type="object"
+                            string="Continue" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Header-only launcher: NO binding_model_id, so it does not appear in
+         the cog/Action menu. -->
+    <record id="action_hksf_new_order_wizard" model="ir.actions.act_window">
+        <field name="name">New Order</field>
+        <field name="res_model">hksf.new.order.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="context">{'default_order_id': active_id}</field>
+    </record>
+
+</odoo>

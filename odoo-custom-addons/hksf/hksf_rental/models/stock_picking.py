@@ -2,7 +2,7 @@
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
 import pytz
-from datetime import datetime
+from datetime import datetime, date as _date
 
 
 class StockPicking(models.Model):
@@ -13,7 +13,7 @@ class StockPicking(models.Model):
     # ------------------------------------------------------------------
 
     scheduled_date_only = fields.Date(
-        string='Scheduled Date (Date Only)',
+        string='Service Date',
         index=True,
         copy=False,
         help="Date-only version of the scheduled datetime (in user timezone). "
@@ -23,15 +23,10 @@ class StockPicking(models.Model):
         string='License Plate',
         copy=False,
     )
-    truck_size_selection = fields.Selection(
-        selection=[
-            ('5_ton', '5 Ton'),
-            ('10_ton', '10 Ton'),
-            ('20_ton', '20 Ton'),
-            ('flatbed', 'Flatbed'),
-            ('other', 'Other'),
-        ],
+    truck_size_id = fields.Many2one(
+        'hksf.truck.size',
         string='Truck Size',
+        ondelete='restrict',
     )
     time_in = fields.Datetime(
         string='Time In',
@@ -86,11 +81,11 @@ class StockPicking(models.Model):
     )
     transportation_method = fields.Selection(
         selection=[
-            ('by_us', 'By Us'),
-            ('by_customer', 'By Customer'),
+            ('by_us', 'Our Transport'),
+            ('by_customer', 'Customer Arranged'),
         ],
         string='Transportation Method',
-        default='by_customer',
+        default='by_us',
     )
     site_contact_ids = fields.Many2many(
         'res.partner',
@@ -133,6 +128,14 @@ class StockPicking(models.Model):
         default=False,
         copy=False,
     )
+    is_lost_return = fields.Boolean(
+        string='Lost Material Return',
+        default=False,
+        copy=False,
+        help="Set on the auto-generated incoming picking that represents lost "
+             "materials being written off. These returns stop the rental clock "
+             "for the lost qty from the lost-invoice date.",
+    )
 
     # ------------------------------------------------------------------
     # Computed
@@ -168,7 +171,7 @@ class StockPicking(models.Model):
         for rec in self:
             if not rec.scheduled_date_only:
                 raise UserError(
-                    _("Please set the Scheduled Date on picking '%s' before validating.")
+                    _("Please set the Service Date on picking '%s' before validating.")
                     % rec.name
                 )
         res = super().button_validate()
@@ -178,6 +181,15 @@ class StockPicking(models.Model):
             if rec.picking_type_code == 'incoming' and rec.state == 'done':
                 rec._resync_collection_histories()
                 rec._generate_repair_damage_lines()
+        # Refresh the active-rental flag on the affected billing master(s)
+        # the moment a delivery/collection is validated, so the monthly
+        # worklist (is_active_rental) is always live.
+        orders = self.move_ids.mapped('custom_sale_id')
+        masters = self.env['sale.order']
+        for o in orders:
+            masters |= (o.billing_master_id or o)
+        if masters:
+            masters._compute_active_rental()
         return res
 
     def action_sync_collection(self):
@@ -280,10 +292,26 @@ class StockPicking(models.Model):
         """
         RD = self.env['collection.repair.damage'].sudo()
         for rec in self:
-            order = rec.custom_sale_order_id
+            picking_order = rec.custom_sale_order_id
             for move in rec.move_ids:
                 if not move.product_id:
                     continue
+                # Resolve the originating sale order ROBUSTLY so the generated
+                # collection.repair.damage record always links back to the SO
+                # (order_id). Without a valid order_id the line is orphaned and
+                # the Create Repair/Damage wizard -- which reads the SO's
+                # collection_lost_material_ids (One2many on order_id) -- shows
+                # NOTHING even though repair_qty/damage_qty were entered and
+                # synced. Fallback chain:
+                #   1. picking.custom_sale_order_id (set by Create Collection)
+                #   2. move.sale_line_id.order_id
+                #   3. the SO behind the linked delivery move (return history)
+                # Needed for collections created outside the Create Collection
+                # button (manual returns, migrated O11 data).
+                order = picking_order or move.sale_line_id.order_id
+                if not order:
+                    dmove = move.delivery_return_history_ids.deliver_move_id[:1]
+                    order = dmove.sale_line_id.order_id if dmove else False
                 sale_line = move.sale_line_id or (
                     order.order_line.filtered(lambda l: l.product_id == move.product_id)[:1]
                     if order else False
@@ -322,42 +350,191 @@ class StockPicking(models.Model):
         return True
 
     def _resync_collection_histories(self):
-        """Re-distribute return histories to match the quantity actually
-        collected on this incoming picking.
+        """Rebuild collection return histories with a TWO-DIMENSIONAL FIFO so
+        the invoice reproduces Odoo 11 exactly, independent of the order in
+        which collections were created or validated.
 
-        The Create-Collection wizard pre-allocates delivery.return.history rows
-        for the FULL outstanding quantity at wizard time. If the user then edits
-        the picking to collect only a partial quantity before validating, those
-        histories still carry the full delivered_qty (e.g. 35 + 109 = 144),
-        which makes the delivery invoice credit/charge 144 units instead of the
-        46 actually collected. This re-syncs return_qty FIFO across the linked
-        delivery moves so the histories always equal the validated qty -- the
-        same contract Odoo 11 enforced via the return-move-select wizard.
+        The two FIFO axes
+        -----------------
+        1. COLLECTIONS are processed EARLIEST-FIRST (by ``scheduled_date_only``,
+           picking id tie-break). The earliest collection claims stock first.
+        2. DELIVERY TRANCHES are consumed OLDEST-FIRST (by the delivery
+           picking's ``scheduled_date_only`` / move date). Each collection draws
+           its collected quantity from the oldest delivery tranche that still
+           has free capacity, spilling into newer tranches only once older ones
+           are exhausted.
+
+        Why both axes matter
+        --------------------
+        A product is often delivered in several tranches (e.g. 189 on 23/05 then
+        130 more on 12/06) and collected in several batches (e.g. 147 on 23/06,
+        75 on 30/06, ...). The MONEY depends on WHICH delivery tranche each
+        collected unit is attributed to, because a recent tranche may still be
+        inside its minimum rental period (e.g. the 12/06 tranche collected 30/06
+        has only been on hire ~19 days, so an 11-day MINIMUM CHARGE applies),
+        whereas an old tranche is past the minimum and credits cleanly.
+
+        Odoo 11 attributes the EARLIEST collection to the OLDEST tranche first;
+        a later collection finishes the old tranche (no minimum charge) and then
+        dips into the recent tranche (triggering its minimum charge). Reproducing
+        that requires rebuilding the delivery.return.history ``deliver_move_id``
+        links, not only the ``return_qty`` -- which is what this method now does.
+
+        Earlier implementations
+        -----------------------
+        * <=v44: per-picking resync that derived capacity from siblings' booked
+          return_qty -> order-dependent; a later collection could starve an
+          earlier one of a shared move's capacity.
+        * v45: global, collection-date FIFO for ``return_qty`` BUT kept each
+          history pinned to its original ``deliver_move_id`` -> fixed the credit
+          quantities yet still mis-attributed the delivery tranche, so short
+          re-rentals lost their minimum charge.
+        * v46 (this): global FIFO on BOTH axes, rebuilding the history rows so
+          tranche attribution matches O11 and minimum charges land correctly.
+
+        Idempotent: a pure function of the validated move quantities + delivery
+        and collection dates, so re-running converges to the same allocation.
         """
         History = self.env['delivery.return.history'].sudo()
-        for move in self.move_ids.filtered(lambda m: m.state == 'done'):
-            collected = move.quantity
-            histories = move.delivery_return_history_ids.sorted(
-                lambda h: (h.deliver_move_id.date or h.deliver_move_id.create_date,
-                           h.deliver_move_id.id)
-            )
-            if not histories:
+
+        # ---- 1. Resolve the set of collections to rebuild together ----------
+        # Start from the done incoming pickings in ``self`` and widen to every
+        # sibling collection of the same sale order, so a shared delivery
+        # tranche's capacity is always allocated across ALL its claimants at
+        # once (allocation must see the whole picture to be order-independent).
+        seed = self.filtered(
+            lambda p: p.picking_type_code == 'incoming' and p.state == 'done'
+        )
+        if not seed:
+            return
+
+        orders = seed.mapped('custom_sale_order_id')
+        # Fallback: derive the order via existing histories / sale lines when
+        # custom_sale_order_id is not set (manual / migrated collections).
+        for coll in seed:
+            if coll.custom_sale_order_id:
                 continue
-            remaining = collected
-            for hist in histories:
-                # Capacity left on this delivery move from OTHER collections.
-                other_returned = sum(
-                    h.return_qty for h in hist.deliver_move_id.delivery_return_history_ids
-                    if h.return_move_id != move
-                )
-                capacity = max(hist.deliver_move_id.quantity - other_returned, 0.0)
-                alloc = min(capacity, remaining) if remaining > 0.0 else 0.0
-                if hist.return_qty != alloc or hist.delivered_qty != hist.deliver_move_id.quantity:
-                    hist.write({
-                        'return_qty': alloc,
-                        'delivered_qty': hist.deliver_move_id.quantity,
-                    })
-                remaining -= alloc
-            # Drop any zero-qty histories left over (fewer deliveries needed
-            # than were pre-allocated) so they don't clutter the invoice.
-            histories.filtered(lambda h: h.return_qty <= 0.0).unlink()
+            dmove = coll.move_ids.mapped(
+                'delivery_return_history_ids.deliver_move_id')[:1]
+            if dmove and dmove.sale_line_id:
+                orders |= dmove.sale_line_id.order_id
+            else:
+                sl = coll.move_ids.mapped('sale_line_id')[:1]
+                if sl:
+                    orders |= sl.order_id
+
+        Picking = self.env['stock.picking'].sudo()
+        all_collections = seed
+        if orders:
+            all_collections |= Picking.search([
+                ('custom_sale_order_id', 'in', orders.ids),
+                ('picking_type_code', '=', 'incoming'),
+                ('state', '=', 'done'),
+            ])
+        # Always include the seed even if order lookup missed it.
+        all_collections = all_collections.filtered(
+            lambda p: p.picking_type_code == 'incoming' and p.state == 'done'
+        )
+
+        def _coll_sort_key(pick):
+            # scheduled_date_only is required before validation; guard unset
+            # values to sort LAST so they claim last.
+            return (pick.scheduled_date_only or _date.max, pick.id)
+
+        ordered_collections = all_collections.sorted(key=_coll_sort_key)
+
+        # ---- 2. Gather delivery tranches per product ------------------------
+        # For each product (by product_id) collect every DONE delivery move on
+        # the relevant sale order(s), oldest delivery first.
+        def _deliver_sort_key(move):
+            pick = move.picking_id
+            d = pick.scheduled_date_only if pick else False
+            return (
+                d or (move.date.date() if move.date else _date.max),
+                move.id,
+            )
+
+        # Build the universe of delivery moves: those already referenced by any
+        # collection's histories PLUS all outgoing done moves of the order(s),
+        # so newly-needed tranches are available even if not yet linked.
+        deliver_moves = self.env['stock.move']
+        for coll in ordered_collections:
+            deliver_moves |= coll.move_ids.mapped(
+                'delivery_return_history_ids.deliver_move_id')
+        if orders:
+            deliver_moves |= self.env['stock.move'].sudo().search([
+                ('picking_id.sale_id', 'in', orders.ids),
+                ('picking_id.picking_type_code', '=', 'outgoing'),
+                ('state', '=', 'done'),
+            ])
+
+        # Remaining capacity per delivery move (its full done quantity).
+        remaining_capacity = {dm.id: dm.quantity for dm in deliver_moves}
+
+        # Index delivery moves by product, oldest-first.
+        tranches_by_product = {}
+        for dm in deliver_moves.sorted(key=_deliver_sort_key):
+            tranches_by_product.setdefault(dm.product_id.id, []).append(dm)
+
+        # ---- 3. Rebuild histories: each collection draws tranches FIFO ------
+        keep_history_ids = set()
+        for coll in ordered_collections:
+            for rmove in coll.move_ids.filtered(lambda m: m.state == 'done'):
+                product_id = rmove.product_id.id
+                to_allocate = rmove.quantity
+                tranches = tranches_by_product.get(product_id, [])
+                # Existing histories on THIS return move, indexed by tranche so
+                # we can update-in-place (preserves invoice links where valid).
+                existing_by_dmove = {}
+                for h in rmove.delivery_return_history_ids:
+                    if h.deliver_move_id:
+                        existing_by_dmove.setdefault(
+                            h.deliver_move_id.id, []).append(h)
+
+                for dm in tranches:
+                    if to_allocate <= 0.0:
+                        break
+                    cap = remaining_capacity.get(dm.id, 0.0)
+                    if cap <= 0.0:
+                        continue
+                    alloc = min(cap, to_allocate)
+                    if alloc <= 0.0:
+                        continue
+                    # Reuse an existing history for this (return move, tranche)
+                    # if present; else create a fresh one.
+                    pool = existing_by_dmove.get(dm.id)
+                    if pool:
+                        hist = pool.pop(0)
+                        if (hist.return_qty != alloc
+                                or hist.delivered_qty != dm.quantity):
+                            hist.write({
+                                'return_qty': alloc,
+                                'delivered_qty': dm.quantity,
+                            })
+                    else:
+                        hist = History.create({
+                            'deliver_move_id': dm.id,
+                            'return_move_id': rmove.id,
+                            'return_qty': alloc,
+                            'delivered_qty': dm.quantity,
+                        })
+                        dm.delivery_return_history_ids = [(4, hist.id)]
+                        rmove.delivery_return_history_ids = [(4, hist.id)]
+                    keep_history_ids.add(hist.id)
+                    remaining_capacity[dm.id] = cap - alloc
+                    to_allocate -= alloc
+
+        # ---- 4. Drop stale / zero-qty histories on the rebuilt collections --
+        # Any history on the processed collections that we did NOT keep is now
+        # superseded (wrong tranche, or zero qty) and must be removed so it does
+        # not feed the invoice. Only touch UN-invoiced histories to avoid
+        # disturbing posted invoice links.
+        for coll in ordered_collections:
+            for rmove in coll.move_ids.filtered(lambda m: m.state == 'done'):
+                for h in rmove.delivery_return_history_ids:
+                    if h.id in keep_history_ids:
+                        continue
+                    if h.invoice_id and h.invoice_id.state == 'posted':
+                        # Never silently break a posted invoice's links.
+                        continue
+                    h.sudo().unlink()

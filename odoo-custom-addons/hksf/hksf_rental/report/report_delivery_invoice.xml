@@ -42,10 +42,10 @@
              layout html height:0 collapses the band to a blank strip.
              We therefore set explicit heights/fonts inline so the header
              always renders regardless of external CSS. -->
-        <div class="header" style="font-family:Helvetica,Arial,sans-serif; font-size:11px; color:#000; min-height:1px;">
+        <div class="header" style="font-family:Helvetica,Arial,sans-serif; font-size:14px; color:#000; min-height:1px;">
             <img t-if="company.custom_header_logo"
                  t-att-src="image_data_uri(company.custom_header_logo)"
-                 style="width:100%; max-height:38mm; object-fit:contain; display:block;"/>
+                 style="width:100%; height:auto; display:block;"/>
             <h2 style="text-align:center; font-size:22px; font-weight:bold; margin:6px 0 2px 0;">
                 <t t-if="o.move_type == 'out_refund'">CREDIT NOTE</t>
                 <t t-elif="o.state == 'draft'">DRAFT INVOICE</t>
@@ -57,60 +57,66 @@
                 <span t-if="o.name and o.name != '/'" t-field="o.name"/>
             </div>
             <div style="border-top:2px solid black;"/>
+            <!-- 4-column right/left/right/left header grid (mirrors Odoo11 layout). -->
+            <t t-set="cp" t-value="o.partner_id.commercial_partner_id"/>
+            <t t-set="sp" t-value="o.partner_shipping_id"/>
+            <t t-set="our_ref" t-value="(o.rental_sale_id.sp_reference if o.rental_sale_id else False) or o.invoice_origin"/>
             <table style="width:100%; margin-top:4px;">
                 <tr>
-                    <td style="width:50%; vertical-align:top;">
-                        <t t-if="o.invoice_origin">
-                            <strong>Our Ref : </strong>
-                            <span t-field="o.invoice_origin"/>
-                        </t>
+                    <td style="width:11%; text-align:right; vertical-align:top; white-space:nowrap;">
+                        <strong>Our Ref : </strong>
                     </td>
-                    <td style="width:50%; vertical-align:top;"></td>
+                    <td style="width:39%; vertical-align:top; padding-left:4px;">
+                        <span t-if="our_ref" t-esc="our_ref"/>
+                    </td>
+                    <td style="width:14%; text-align:right; vertical-align:top; white-space:nowrap;"></td>
+                    <td style="width:36%; vertical-align:top;"></td>
                 </tr>
                 <tr>
-                    <td style="vertical-align:top;">
+                    <td style="text-align:right; vertical-align:top; white-space:nowrap;">
                         <strong>Client : </strong>
-                        <strong><span t-field="o.partner_id.commercial_partner_id.name"/></strong>
                     </td>
-                    <td style="vertical-align:top;">
-                        <t t-if="o.invoice_date">
-                            <strong>Date : </strong>
-                            <span t-field="o.invoice_date" t-options="{'format': 'd MMMM y'}"/>
+                    <td style="vertical-align:top; padding-left:4px;">
+                        <strong><span t-field="cp.name"/></strong>
+                        <t t-if="cp.company_name_cn">
+                            <br/><strong><span t-field="cp.company_name_cn"/></strong>
                         </t>
+                    </td>
+                    <td style="text-align:right; vertical-align:top; white-space:nowrap;">
+                        <strong t-if="o.invoice_date">Date : </strong>
+                    </td>
+                    <td style="vertical-align:top; padding-left:4px;">
+                        <span t-if="o.invoice_date" t-field="o.invoice_date" t-options="{'format': 'd MMMM y'}"/>
                     </td>
                 </tr>
                 <tr>
-                    <td style="vertical-align:top;">
+                    <td style="text-align:right; vertical-align:top; white-space:nowrap;">
                         <strong>Address : </strong>
-                        <t t-set="cp" t-value="o.partner_id.commercial_partner_id"/>
+                    </td>
+                    <td style="vertical-align:top; padding-left:4px;">
                         <span t-if="cp.street" t-field="cp.street"/>
                         <t t-if="cp.street2"><br/><span t-field="cp.street2"/></t>
                         <t t-if="cp.city"><br/><span t-field="cp.city"/></t>
                     </td>
-                    <td style="vertical-align:top;">
-                        <t t-set="sp" t-value="o.partner_shipping_id"/>
+                    <td style="text-align:right; vertical-align:top; white-space:nowrap;">
+                        <strong t-if="sp and sp.street">Site : </strong>
+                    </td>
+                    <td style="vertical-align:top; padding-left:4px;">
                         <t t-if="sp and sp.street">
-                            <strong>Site : </strong>
                             <span t-field="sp.street"/>
                             <t t-if="sp.street2"><br/><span t-field="sp.street2"/></t>
                         </t>
                     </td>
                 </tr>
                 <tr>
-                    <td style="vertical-align:top;">
-                        <t t-if="o.partner_id.name">
-                            <strong>Attn : </strong>
-                            <span t-field="o.partner_id.name"/>
-                        </t>
+                    <td style="text-align:right; vertical-align:top; white-space:nowrap;">
+                        <strong>Attn : </strong>
                     </td>
-                    <td style="vertical-align:top;">
-                        <t t-if="o.partner_id.commercial_partner_id.phone">
-                            <strong>Tel : </strong>
-                            <span t-field="o.partner_id.commercial_partner_id.phone"/>
-                        </t>
-                        <t t-if="o.partner_id.commercial_partner_id.custom_fax">
-                            <strong> / Fax : </strong>
-                            <span t-field="o.partner_id.commercial_partner_id.custom_fax"/>
+                    <td colspan="3" style="vertical-align:top; padding-left:4px;">
+                        A/C Dept.
+                        <t t-if="o.cc_partner_id">
+                            <span style="display:inline-block; width:18px;"/><strong>CC : </strong>
+                            <span t-field="o.cc_partner_id.name"/>
                         </t>
                     </td>
                 </tr>
@@ -123,8 +129,14 @@
         <div class="article">
             <t t-out="0"/>
         </div>
-        <div class="footer" style="font-family:Helvetica,Arial,sans-serif; font-size:10px;">
-            <div style="text-align:center; color:#777;">
+        <div class="footer" style="font-family:Helvetica,Arial,sans-serif; font-size:9px; color:#000;">
+            <div style="border-top:1px solid #000; padding-top:2px; line-height:1.25;">
+                <div>如入數後,請傳真或whatsapp 24427002 有關入數紙給我司, 以便跟進,謝！</div>
+                <div>H.K.Scafform Suppliers Ltd / 加豐鐵架工程有限公司</div>
+                <div>中國銀行&#160;&#160;0 1 2 - 8 9 8 - 0 0 0 4 7 0 3&#160;5</div>
+                <div>匯豐銀行&#160;&#160;1 6 8 - 4 1 9 0 9 1 - 0 0 1</div>
+            </div>
+            <div style="text-align:center; color:#777; margin-top:2px;">
                 Page: <span class="page"/> / <span class="topage"/>
             </div>
         </div>
@@ -134,12 +146,26 @@
          Shared document template
          ================================================================ -->
     <template id="report_material_rent_document">
-        <div class="page">
+        <div class="page" style="font-size:14px;">
             <t t-set="invoice_new_vals"
                t-value="o.with_context(report_print_type=report_print_type).print_cutom_invoice()"/>
             <t t-set="vals" t-value="invoice_new_vals['new_val_dict']"/>
 
-            <table class="table table-bordered table-sm" style="width:100%;">
+            <style>
+                /* Body font matches Odoo11 (body_font_size default 14px). Table inherits. */
+                .hksf-rent-table td, .hksf-rent-table th { padding:1px 4px !important; line-height:1.1 !important; vertical-align:middle !important; }
+                /* Force white header text on black band in print (Bootstrap th color override). */
+                .hksf-rent-table thead th {
+                    background-color:#000000 !important;
+                    color:#ffffff !important;
+                    -webkit-print-color-adjust:exact !important;
+                    print-color-adjust:exact !important;
+                }
+                /* Banded rows on product lines only are applied inline per-group
+                   (t-att-style with inv_line_index) so alternation is perfect
+                   within each group and never tints section/subtotal/total rows. */
+            </style>
+            <table class="table table-bordered table-sm hksf-rent-table" style="width:100%; line-height:1.1;">
                 <thead>
                     <tr style="background-color:#000000;color:#ffffff;">
                         <th style="width:53%;">Description</th>
@@ -159,6 +185,7 @@
                     <t t-set="rental_amount" t-value="0.0"/>
                     <t t-set="return_amount" t-value="0.0"/>
                     <t t-set="transport_total" t-value="0.0"/>
+                    <t t-set="service_total" t-value="0.0"/>
 
                     <!-- Sections 1, 2, 3, 5 (rental / balance / deduction / lost) -->
                     <t t-foreach="[1, 2, 3, 5]" t-as="seq">
@@ -200,7 +227,8 @@
                             </tr>
                             <t t-set="grp_monthly" t-value="0.0"/>
                             <t t-set="grp_amount" t-value="0.0"/>
-                            <tr t-foreach="grp_lines" t-as="inv_line" style="page-break-inside: avoid;">
+                            <tr t-foreach="grp_lines" t-as="inv_line" class="hksf-item-row"
+                                t-att-style="'page-break-inside: avoid;' + ('background-color:#f2f2f2; -webkit-print-color-adjust:exact; print-color-adjust:exact;' if (inv_line_index % 2 == 1) else '')">
                                 <td>
                                     <span t-field="inv_line.name"/>
                                     <t t-if="inv_line.minimum_charge_days and o.minimum_charge_method != 'first_charge'"> [Minimum charge applied for <strong t-out="inv_line.minimum_charge_days"/> days]</t>
@@ -211,8 +239,7 @@
                                           t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/>
                                 </td>
                                 <td class="text-end">
-                                    <span t-out="o.change_quantity_format(inv_line.quantity)"/>
-                                    <span t-field="inv_line.product_uom_id"/>
+                                    <span t-out="o.change_quantity_format(inv_line.quantity)"/> pce(s)
                                 </td>
                                 <td class="text-end">
                                     <t t-set="grp_monthly" t-value="grp_monthly + inv_line.monthly_amount"/>
@@ -254,10 +281,9 @@
                             <td colspan="2">
                                 <span t-field="inv_line.name"/>
                                 <t t-if="inv_line.picking_id"> [<span t-field="inv_line.picking_id.name"/>]</t>
-                                <span t-if="inv_line.picking_id.license_plate" t-field="inv_line.picking_id.license_plate"/>
                             </td>
                             <td class="text-end">
-                                <span t-out="o.change_quantity_format(inv_line.quantity)"/>
+                                <span t-out="o.change_quantity_format(inv_line.quantity)"/> trip(s)
                             </td>
                             <td class="text-end">
                                 <span t-field="inv_line.price_unit"
@@ -267,6 +293,38 @@
                                 <b><span t-field="inv_line.price_subtotal"
                                          t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/></b>
                                 <t t-set="transport_total" t-value="transport_total + inv_line.price_subtotal"/>
+                            </td>
+                        </tr>
+                    </t>
+
+                    <!-- Section 6: Other Charges (erection / dismantling services).
+                         Rendered from the invoice's own service journal lines
+                         (bucket 6 = is_service_product), so the printed total is
+                         always exactly the posted move. Labels mirror Odoo 11
+                         ("Other Charges" / Qty / Unit Rate / Amount). -->
+                    <tr t-if="vals.get(6)" style="page-break-inside: avoid;">
+                        <td colspan="2"><b>Other Charges</b></td>
+                        <td class="text-end"><b>Qty</b></td>
+                        <td class="text-end"><b>Unit Rate</b></td>
+                        <td class="text-end"><b>Amount</b></td>
+                    </tr>
+                    <t t-foreach="vals.get(6) or {}" t-as="grp">
+                        <tr t-foreach="vals[6][grp]" t-as="inv_line" style="page-break-inside: avoid;">
+                            <td colspan="2">
+                                <span t-field="inv_line.name"/>
+                            </td>
+                            <td class="text-end">
+                                <span t-out="o.change_quantity_format(inv_line.quantity)"/>
+                                <span t-field="inv_line.product_uom_id"/>
+                            </td>
+                            <td class="text-end">
+                                <span t-field="inv_line.price_unit"
+                                      t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/>
+                            </td>
+                            <td class="text-end">
+                                <b><span t-field="inv_line.price_subtotal"
+                                         t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/></b>
+                                <t t-set="service_total" t-value="service_total + inv_line.price_subtotal"/>
                             </td>
                         </tr>
                     </t>
@@ -286,10 +344,17 @@
                                      t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/></b>
                         </td>
                     </tr>
+                    <tr style="page-break-inside: avoid;" t-if="service_total">
+                        <td colspan="4"><b>Total Other Charges</b></td>
+                        <td class="text-end">
+                            <b><span t-out="service_total"
+                                     t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/></b>
+                        </td>
+                    </tr>
                     <tr style="page-break-inside: avoid;">
                         <td colspan="4"><b>Grand Total</b></td>
                         <td class="text-end">
-                            <b><span t-out="rental_amount + return_amount + transport_total"
+                            <b><span t-out="rental_amount + return_amount + transport_total + service_total"
                                      t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/></b>
                         </td>
                     </tr>

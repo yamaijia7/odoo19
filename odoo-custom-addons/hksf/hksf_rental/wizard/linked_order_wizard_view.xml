@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_hksf_linked_order_wizard_form" model="ir.ui.view">
+        <field name="name">hksf.linked.order.wizard.form</field>
+        <field name="model">hksf.linked.order.wizard</field>
+        <field name="arch" type="xml">
+            <form string="New Linked Order">
+                <field name="order_id" invisible="1"/>
+                <group>
+                    <field name="copy_lines"/>
+                </group>
+                <footer>
+                    <button name="action_apply" type="object"
+                            string="Copy Lines" class="btn-primary"
+                            context="{'default_copy_lines': True}"/>
+                    <button name="action_apply" type="object"
+                            string="Blank Order" class="btn-secondary"
+                            context="{'default_copy_lines': False}"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_hksf_linked_order_wizard" model="ir.actions.act_window">
+        <field name="name">New Linked Order</field>
+        <field name="res_model">hksf.linked.order.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="context">{'default_order_id': active_id}</field>
+    </record>
+
+</odoo>

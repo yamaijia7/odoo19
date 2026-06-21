@@ -120,6 +120,82 @@ Run from the Odoo root (`PYTHONPATH=<odoo_root>`), DB user `odoo`:
 
 ---
 
+## 6b. Lost = Return behaviour (v19.0.1.28.2)
+
+Creating a **lost-material invoice** now stops the lost qty from being
+rent-charged, treating it exactly like stock returned to us on the
+lost-invoice date (per user spec: "lost is similar to them buying it off as to
+cut off rental").
+
+- `sale_order._create_lost_return_picking()` auto-creates ONE validated
+  **incoming** picking (`is_lost_return=True`) for the invoiced lost lines,
+  dated on `invoice.invoice_date`, and FIFO-links it to the originating done
+  delivery moves via `delivery.return.history` (per-move `return_qty` capped by
+  remaining delivered-minus-already-returned capacity, so a delivery move can
+  never be over-returned).
+- The existing rental-billing credit machinery then nets the lost qty out of
+  rent **pro-rata to the lost-invoice date** (separate negative collection
+  credit line — not a reduced positive qty).
+- **Partial lost** is fully supported: invoice e.g. 50 of 100 as lost; rent
+  continues on the remaining 50, the 50 lost units stop accruing from the lost
+  date. Q1 (continue rental after a lost invoice) and Q2 (partial lost lowers
+  upkeep) both verified.
+- Runtime-verified (`/home/user/workspace/verify_2820.py`,
+  `debug_lostcredit.py`, `debug_C.py`): partial-lost mid-period → net rent
+  reduced; full-lost at period start → net rent 0; two 50-lost runs → exactly
+  100 returned (no over-return). All 5 regression tests still pass.
+
+---
+
+## 6c. Reverse Lost / resume rental (v19.0.1.28.3)
+
+Use when a client requested a lost "cut-off" that was **never paid** and rental
+must continue. Reverses the lost invoice from 6b and **resumes rent from the
+lost-invoice date forward** — one click, no manual stock surgery.
+
+**Why a button is needed:** the lost invoice (`account.move`) and the
+lost-return picking are *not* linked. Deleting or cancelling the invoice on its
+own does **nothing** to the return picking, so rent stays stopped. You also
+cannot `action_cancel()` a done stock move (Odoo raises *"You cannot cancel a
+stock move that has been set to 'Done'. Create a return…"*). Hence a dedicated,
+Odoo-safe reverse.
+
+- Button **"Reverse Lost & Resume Rental"** (`btn-warning`, with confirm dialog)
+  on the lost invoice form header; visible only when
+  `rental_invoice_type == 'lost'` and `state != 'cancel'`.
+- `account_move.action_reverse_lost_resume_rental(reverse_stock=True)`:
+  1. **Severs the custom `delivery.return.history` links** for the done
+     lost-return picking (`force_unlink=True` context) — this alone resumes rent
+     because `stock_move._compute_new_return_quantity` only counts histories
+     whose `return_move_id.state == 'done'`. **Core stock is untouched** by this
+     step (odoo logic preserved).
+  2. If `reverse_stock=True` (button default), reverses the physical stock via
+     the **standard `stock.return.picking` wizard** (`action_create_returns()` →
+     validate), creating an *outgoing* picking that ships the units back out to
+     the client. The reverse picking is flagged `is_lost_return=False` so it is
+     not itself treated as a rental return. The original done incoming move is
+     **kept**, never force-cancelled — quants/valuation stay consistent.
+  3. Releases the lost lines (`invoice_id=False`) and recomputes outstanding.
+  4. Cancels the lost invoice via the **normal flow** (`button_draft` →
+     `button_cancel`) — invoice is *cancelled, not deleted*, so the audit trail
+     and sequence remain intact.
+- Runtime-verified (`/home/user/workspace/verify_reverse2.py`) for both
+  `reverse_stock=True` and `False`: lost invoice ends cancelled (not deleted),
+  original done return move kept, reverse outgoing picking created+done when
+  requested, and **June rent resumes at the full 100 units**. All 5 regression
+  tests still pass.
+- **Re-lost after a reverse (v19.0.1.28.4):** the reverse now also untags the
+  old lost-return picking (`is_lost_return=False`, `custom_sale_order_id`/move
+  `custom_sale_id` cleared) and *deletes* the released `collection.repair.damage`
+  lost line, so a NEW lost invoice can be raised later with no stale pickings or
+  duplicate lost lines. Verified (`/home/user/workspace/verify_relost.py`):
+  lost → reverse → rent resumes full → second future lost invoice builds from
+  exactly one clean line and stops rent again. (A future lost invoice is created
+  the normal way — the **Outstanding Products** page, which rebuilds the lost
+  lines from the live delivered−collected balance.)
+
+---
+
 ## 7. What is intentionally NOT a risk
 
 - **No JavaScript / OWL / `static/` assets** — the single biggest cross-version
@@ -132,3 +208,76 @@ Run from the Odoo root (`PYTHONPATH=<odoo_root>`), DB user `odoo`:
 - **No `mail.thread`/chatter** customization.
 - **Migration discipline already in place** — column renames + stored-compute
   back-fills, all idempotent.
+
+---
+
+## 8. Core-safety audit (v19.0.1.28.5)
+
+Full pass over every model/wizard for code that could desync Odoo core state:
+
+- **Stock state writes:** the only raw `state='done'` force-writes were a
+  defensive fallback in `sale_order._create_lost_return_picking`. Although the
+  normal path never hit them (`button_validate()` returns `True` and quants move
+  correctly — runtime-verified, on-hand +100), a forced `state='done'` would
+  mark a move done *without moving stock* if ever reached. **Fixed:** the
+  fallback now completes via the core `move_ids._action_done()` primitive (the
+  same routine `button_validate` calls), so quants + valuation are always handled
+  by Odoo. No raw stock `state` write remains in runtime code. `stock.move._action_cancel`
+  is correctly overridden to clean the module's own histories then `super()`.
+- **No quant / valuation tampering:** zero references to `stock.quant` or
+  `stock.valuation.layer`; the module never writes them directly.
+- **Core overrides all call `super()`** and only post-process the module's OWN
+  custom relations (`tag_ids`, `delivery.return.history`,
+  `collection.repair.damage`). `stock.move.write` guards re-entrancy with a
+  context flag.
+- **`account.move` writes are safe:** the two `invoice.unlink()` calls delete a
+  *freshly-created zero-line DRAFT* invoice (the "no lines generated" discard) —
+  never a posted move. The lost-reverse cancels via the normal
+  `button_draft -> button_cancel` flow (cancelled, not deleted).
+- **All `.unlink()` calls target custom models only** (histories / R&D lines /
+  transport charges) — no core record is force-deleted.
+- **Raw SQL only in `migrations/`**, operating on the module's own columns/views.
+
+Verdict: after the one fallback fix, the module contains **no code path that
+forces core stock/accounting state out of sync.** verify_reverse2, verify_relost
+and all 5 regression tests pass; lost-return still moves quants correctly.
+
+---
+
+## ROLLBACK — remove service charges (v19.0.1.31.0)
+
+This build **rolls the module back to the pre-service-charge baseline**
+(the v19.0.1.28.5 codebase) so the feature can be rebuilt from scratch. The
+erection/dismantling **service charge** feature (added v19.0.1.29.0, extended
+through v19.0.1.30.1) is fully removed from the code, AND a pre-migration
+script cleans every DB artifact it left behind.
+
+- **Version number is a trigger, not the code line.** The manifest says
+  `19.0.1.31.0` only so Odoo runs the cleanup migration when upgrading from a
+  deployed 19.0.1.30.x. The actual code is the v28.5 baseline (no service
+  charges). Odoo runs a migration when
+  `installed_version < migration_folder <= manifest_version`; deployed 30.1
+  upgrading to 31.0 satisfies this, so `migrations/19.0.1.31.0/pre-migration.py`
+  fires.
+- **What the cleanup removes** (all guarded / idempotent):
+  - Blanks any stored `sale.order` / `service.charge` view referencing the
+    removed fields (`service_type`, `service_charge_ids`) so the sale order
+    form stops throwing the OWL "field is undefined" error, then Odoo rebuilds
+    those views from the rollback XML in the same upgrade.
+  - Blanks the custom QWeb quotation report view that carried the service
+    print block (rebuilt from rollback XML).
+  - Deletes `ir.model.data`, `ir.model.access`, `ir.model.fields`, and the
+    `ir.model` row for `service.charge`.
+  - Drops orphaned columns: `res_company.hksf_service_journal_id`,
+    `account_move_line.is_service_product`, `account_move_line.service_charge_id`.
+  - Drops the `service_charge` table.
+  - **Leaves the native `product.template.service_type` field untouched** (it
+    is a core Odoo product field, NOT part of the removed feature).
+- **Why a migration (not just old code):** Odoo never auto-drops tables,
+  columns, or stored views when a model/field disappears from code. Without the
+  migration the DB would keep orphaned `service_charge` artifacts and the stale
+  sale-order view would still break the form (the OWL error seen in prod).
+- **Verified on Odoo 19:** upgraded a DB carrying the full v30.1 service-charge
+  state to this build — migration ran clean, `service.charge` model/table/
+  columns/views all gone, sale order form renders and records read OK, native
+  product service_type preserved, and all 5 regression tests pass.

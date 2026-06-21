@@ -8,6 +8,9 @@
         <field name="arch" type="xml">
             <xpath expr="//page[@name='sales']" position="after">
                 <page string="HKSF Rental" name="hksf_rental_product">
+                    <group string="Rental Settings">
+                        <field name="line_type"/>
+                    </group>
                     <group string="Minimum Charge">
                         <field name="ia_apply_minimum_charge"/>
                     </group>
