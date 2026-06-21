@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!--
+            account_usability (OCA) renames group_account_manager to
+            "Accountant" and restructures implied_ids, leaving base admin
+            users without any accounting group assignment.
+
+            This record ensures user_root and user_admin are always
+            members of account.group_account_manager (Accountant), granting
+            full accounting access without touching implied_ids or
+            conflicting with account_usability's group hierarchy.
+
+            Access matrix result:
+              Administrator (base.user_admin):
+                - Settings access: YES (base.group_system)
+                - Accounting access: YES (account.group_account_manager = Accountant)
+                - Implied: group_account_user (Bookkeeper) + group_account_invoice (Billing)
+
+              Accountant users (non-admin):
+                - Settings access: NO
+                - Accounting access: YES (group_account_manager)
+        -->
+        <record id="account.group_account_manager" model="res.groups">
+            <field name="user_ids" eval="[
+                (4, ref('base.user_root')),
+                (4, ref('base.user_admin')),
+            ]"/>
+        </record>
+    </data>
+</odoo>
