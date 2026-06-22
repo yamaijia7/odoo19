@@ -140,47 +140,146 @@ class SaleOrder(models.Model):
         string="Active Rental",
         compute="_compute_active_rental",
         store=True,
-        help="Confirmed rental (billing master) with equipment still on "
-             "site. Drops off automatically once everything is collected.",
+        help="Confirmed rental (billing master) that still needs follow-up: "
+             "either equipment is still on site, OR everything is collected "
+             "but billing has not yet caught up to the last collection date "
+             "(final invoice still owed). Drops off only when BOTH the "
+             "on-hire qty is 0 AND billing covers the last collection date "
+             "(or 'Rental Billing Closed' is ticked).",
+    )
+    # --- Gate 2 inputs: billing-coverage vs last collection ------------
+    last_collection_date = fields.Date(
+        string="Last Collection Date",
+        compute="_compute_active_rental",
+        store=True,
+        help="Date of the most recent DONE collection (incoming) in this "
+             "rental's scope (master + children). Uses the picking's "
+             "scheduled collection date, falling back to the move date.",
+    )
+    last_invoiced_through = fields.Date(
+        string="Invoiced Through",
+        compute="_compute_active_rental",
+        store=True,
+        help="Latest billing-period END date across POSTED rental invoice "
+             "lines in scope. Gate 2 is cleared once this reaches the last "
+             "collection date.",
+    )
+    rental_billing_closed = fields.Boolean(
+        string="Rental Billing Closed",
+        default=False,
+        copy=False,
+        help="Manual override: tick when a fully-collected rental has nothing "
+             "left to bill (e.g. the final stub is waived or minimum charge "
+             "already met). Satisfies Gate 2 so the rental drops off the "
+             "Active Rentals worklist without a closing invoice.",
+    )
+    rental_followup_state = fields.Selection(
+        selection=[
+            ('on_hire', 'On Hire'),
+            ('final_bill_due', 'Final Bill Due'),
+            ('done', 'Done'),
+        ],
+        string="Follow-up State",
+        compute="_compute_active_rental",
+        store=True,
+        help="Why this rental is (or is not) on the Active Rentals worklist. "
+             "on_hire = equipment still out; final_bill_due = collected but "
+             "closing invoice still owed; done = wound down.",
     )
 
     @api.depends(
-        'custom_sale_type', 'state', 'billing_master_id',
+        'custom_sale_type', 'state', 'billing_master_id', 'rental_billing_closed',
         'child_sale_ids.order_line.move_ids.state',
         'child_sale_ids.order_line.move_ids.quantity',
+        'child_sale_ids.order_line.move_ids.date',
+        'child_sale_ids.order_line.move_ids.picking_id.scheduled_date_only',
         'order_line.move_ids.state',
         'order_line.move_ids.quantity',
+        'order_line.move_ids.date',
+        'order_line.move_ids.picking_id.scheduled_date_only',
     )
     def _compute_active_rental(self):
         Move = self.env['stock.move'].sudo()
+        AML = self.env['account.move.line'].sudo()
         for order in self:
             # Only billing masters carry the flag; children roll up to master.
             if order.billing_master_id:
                 order.on_hire_qty = 0.0
+                order.last_collection_date = False
+                order.last_invoiced_through = False
                 order.is_active_rental = False
+                order.rental_followup_state = 'done'
                 continue
             scope_ids = (order | order.child_sale_ids).ids
             if not scope_ids:
                 order.on_hire_qty = 0.0
+                order.last_collection_date = False
+                order.last_invoiced_through = False
                 order.is_active_rental = False
+                order.rental_followup_state = 'done'
                 continue
             delivered = sum(Move.search([
                 ('custom_sale_id', 'in', scope_ids),
                 ('picking_code', '=', 'outgoing'),
                 ('state', '=', 'done'),
             ]).mapped('quantity'))
-            collected = sum(Move.search([
+            collection_moves = Move.search([
                 ('custom_sale_id', 'in', scope_ids),
                 ('picking_code', '=', 'incoming'),
                 ('state', '=', 'done'),
-            ]).mapped('quantity'))
+            ])
+            collected = sum(collection_moves.mapped('quantity'))
             on_hire = delivered - collected
             order.on_hire_qty = on_hire
-            order.is_active_rental = (
-                order.custom_sale_type == 'rent'
-                and order.state == 'sale'
-                and on_hire > 0.0
+
+            # --- Gate 2: last collection date (business date = picking
+            #     scheduled collection date; fall back to the move date). ---
+            coll_dates = []
+            for m in collection_moves:
+                d = m.picking_id.scheduled_date_only
+                if not d and m.date:
+                    d = m.date.date()
+                if d:
+                    coll_dates.append(d)
+            last_coll = max(coll_dates) if coll_dates else False
+            order.last_collection_date = last_coll
+
+            # --- Billing coverage: latest period END across POSTED rental
+            #     invoice lines in scope. Rental period lines carry end_date
+            #     and link back via custom_sale_line_id.order_id; transport /
+            #     service lines are excluded from rental coverage. ---
+            inv_lines = AML.search([
+                ('parent_state', '=', 'posted'),
+                ('move_id.move_type', '=', 'out_invoice'),
+                ('end_date', '!=', False),
+                ('is_transport_product', '=', False),
+                ('is_service_product', '=', False),
+                ('custom_sale_line_id.order_id', 'in', scope_ids),
+            ])
+            end_dates = inv_lines.mapped('end_date')
+            invoiced_through = max(end_dates) if end_dates else False
+            order.last_invoiced_through = invoiced_through
+
+            is_rent = (order.custom_sale_type == 'rent'
+                       and order.state == 'sale')
+            on_site = on_hire > 0.0
+            # Gate 2 unmet = collected, but billing has NOT reached the last
+            # collection date (and not manually closed).
+            final_bill_due = (
+                not on_site
+                and bool(last_coll)
+                and not order.rental_billing_closed
+                and (not invoiced_through or invoiced_through < last_coll)
             )
+            order.is_active_rental = is_rent and (on_site or final_bill_due)
+            if not is_rent:
+                order.rental_followup_state = 'done'
+            elif on_site:
+                order.rental_followup_state = 'on_hire'
+            elif final_bill_due:
+                order.rental_followup_state = 'final_bill_due'
+            else:
+                order.rental_followup_state = 'done'
 
     @api.depends(
         'name', 'billing_master_id', 'billing_master_id.name',

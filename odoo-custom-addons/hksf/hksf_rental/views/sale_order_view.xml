@@ -134,6 +134,17 @@
                        invisible="custom_sale_type != 'rent'"/>
                 <field name="is_manual_invoice"
                        invisible="custom_sale_type != 'rent'"/>
+                <!-- Active-rental follow-up: state + closing-bill override -->
+                <field name="rental_followup_state"
+                       invisible="custom_sale_type != 'rent'"/>
+                <field name="last_collection_date"
+                       invisible="custom_sale_type != 'rent'"/>
+                <field name="last_invoiced_through"
+                       invisible="custom_sale_type != 'rent'"/>
+                <field name="on_hire_qty"
+                       invisible="custom_sale_type != 'rent'"/>
+                <field name="rental_billing_closed"
+                       invisible="custom_sale_type != 'rent'"/>
                 <field name="subject_line"/>
             </xpath>
 
@@ -380,6 +391,33 @@
         </field>
     </record>
 
+    <!-- Dedicated list for the worklist: shows the follow-up state, on-hire
+         qty and billing-coverage dates, and highlights rentals whose closing
+         invoice is still owed (final_bill_due). PRIMARY (not an inherit) so
+         these rental-only columns never leak into other sale.order lists. -->
+    <record id="view_active_rentals_list" model="ir.ui.view">
+        <field name="name">sale.order.list.active.rentals</field>
+        <field name="model">sale.order</field>
+        <field name="priority">99</field>
+        <field name="arch" type="xml">
+            <list string="Active Rentals"
+                  decoration-warning="rental_followup_state == 'final_bill_due'"
+                  decoration-muted="rental_followup_state == 'done'">
+                <field name="name"/>
+                <field name="sp_reference" optional="show"/>
+                <field name="partner_id"/>
+                <field name="date_order" optional="hide"/>
+                <field name="rental_followup_state" widget="badge"
+                       decoration-info="rental_followup_state == 'on_hire'"
+                       decoration-warning="rental_followup_state == 'final_bill_due'"/>
+                <field name="on_hire_qty" sum="On Hire"/>
+                <field name="last_collection_date"/>
+                <field name="last_invoiced_through"/>
+                <field name="amount_total" sum="Total" optional="show"/>
+            </list>
+        </field>
+    </record>
+
     <record id="action_active_rentals" model="ir.actions.act_window">
         <field name="name">Active Rentals</field>
         <field name="res_model">sale.order</field>
@@ -388,10 +426,20 @@
         <field name="context">{'search_default_group_active_customer': 1}</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">No active rentals</p>
-            <p>Confirmed rentals with equipment still on site (delivered minus
-               collected &gt; 0) appear here for monthly billing follow-up.
-               Orders drop off automatically once fully collected.</p>
+            <p>Confirmed rentals needing follow-up appear here: equipment still
+               on site (On Hire), OR fully collected but the closing invoice is
+               not yet billed up to the last collection date (Final Bill Due).
+               Orders drop off only once both gates clear (or 'Rental Billing
+               Closed' is ticked).</p>
         </field>
+    </record>
+
+    <!-- Bind the dedicated list to the action (keep kanban + form too). -->
+    <record id="action_active_rentals_list_view" model="ir.actions.act_window.view">
+        <field name="sequence">1</field>
+        <field name="view_mode">list</field>
+        <field name="view_id" ref="view_active_rentals_list"/>
+        <field name="act_window_id" ref="action_active_rentals"/>
     </record>
 
     <menuitem id="menu_active_rentals"
