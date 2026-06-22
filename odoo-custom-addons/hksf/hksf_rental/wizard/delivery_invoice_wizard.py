@@ -230,11 +230,17 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
             journal = company._hksf_journal_for(invoice_type)
         return {
             'move_type': 'out_invoice',
-            'partner_id': order.partner_id.id,
+            # Native sale flow bills the INVOICE address, not the order contact.
+            # Use partner_invoice_id so a customer with a separate invoicing
+            # contact is billed correctly (mirrors sale.order._prepare_invoice).
+            'partner_id': order.partner_invoice_id.id,
             'partner_shipping_id': order.partner_shipping_id.id,
             'invoice_date': self.end_date,
             'rental_sale_id': order.id,
             'user_id': order.user_id.id,
+            # Salesperson + sales team for reporting parity with native invoices.
+            'invoice_user_id': order.user_id.id,
+            'team_id': order.team_id.id,
             'invoice_origin': order.name,
             'ref': order.client_order_ref or order.name,
             'company_id': order.company_id.id,
@@ -256,6 +262,26 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
             # 'CC :' header line populates without manual entry. Overridable.
             'cc_partner_id': self._default_cc_partner(order).id or False,
         }
+
+    def _line_analytic(self, sale_line, order):
+        """Analytic distribution to merge into an invoice-line vals dict,
+        mirroring native sale.order.line._set_analytic_distribution.
+
+        Primary source: the originating sale.order.line's analytic_distribution
+        (populated from a line/order project via the sale_project bridge, or by
+        an analytic distribution model rule). Fallback: the order's project
+        analytic (order.project_id) for lines with no originating SO line
+        (e.g. transport). Returns an empty dict when neither has a
+        distribution, so we never write a spurious/empty key.
+        """
+        dist = sale_line.analytic_distribution if sale_line else None
+        if not dist and order and getattr(order, 'project_id', False):
+            # _get_analytic_distribution comes from the sale_project/project
+            # bridge; guard so this stays safe if that module is absent.
+            project = order.project_id
+            if hasattr(project, '_get_analytic_distribution'):
+                dist = project.sudo()._get_analytic_distribution()
+        return {'analytic_distribution': dist} if dist else {}
 
     def _default_cc_partner(self, order):
         """Resolve the default CC contact for the invoice header.
@@ -513,7 +539,7 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
                     continue
                 line_price = move.sale_line_id.price_unit if move.sale_line_id else move.price_unit
                 price_unit = (abs(line_price) / period_days) * rent_days
-                line_vals_list.append({
+                line_vals = {
                     'move_id': invoice.id,
                     'product_id': move.product_id.id,
                     'quantity': invoiceable,
@@ -528,7 +554,10 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
                     'custom_move_id': move.id,
                     'custom_sale_line_id': move.sale_line_id.id if move.sale_line_id else False,
                     'delivery_history_ids': [(4, h.id) for h in move.delivery_return_history_ids],
-                })
+                }
+                # Propagate project/analytic from the originating SO line.
+                line_vals.update(self._line_analytic(move.sale_line_id, order))
+                line_vals_list.append(line_vals)
                 picking.write({'invoice_id': invoice.id, 'last_invoice_date': fields.Date.today()})
 
                 # ---- Collection credit lines ----
@@ -762,6 +791,8 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
                         move.product_id, order.company_id)
                     if rental_account:
                         line_vals['account_id'] = rental_account.id
+                    # Propagate project/analytic from the originating SO line.
+                    line_vals.update(self._line_analytic(move.sale_line_id, order))
                     lines[key] = line_vals
                 else:
                     lines[key]['quantity'] += quantity
@@ -774,7 +805,8 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
                 for lost_line in lost_invoice_lines.filtered(lambda l: l.quantity > 0.0):
                     self._process_lost_credit_line(
                         lines, lost_line, move, picking, invoice,
-                        wiz_end, orig_end, del_date, period_days, line_price, description
+                        wiz_end, orig_end, del_date, period_days, line_price, description,
+                        order=order
                     )
 
                 # ---- Collection credit lines ----
@@ -834,7 +866,8 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
 
     def _process_lost_credit_line(
         self, lines, lost_line, move, picking, invoice,
-        wiz_end, orig_end, del_date, period_days, line_price, description
+        wiz_end, orig_end, del_date, period_days, line_price, description,
+        order=None
     ):
         """Create a negative credit line for a lost-product invoice."""
         apply_min = move.product_id.product_tmpl_id.ia_apply_minimum_charge
@@ -878,6 +911,9 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
             }
             if description:
                 lv['name'] = description
+            # Propagate project/analytic from the originating SO line (order
+            # fallback for SO-line-less moves).
+            lv.update(self._line_analytic(move.sale_line_id, order))
             lines[key] = lv
         else:
             lines[key]['quantity'] += lost_line.quantity
@@ -972,6 +1008,9 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
             # balance section and never shows a mangled fallback string. Falls
             # back to the passed description only if the product yields nothing.
             lv['name'] = self._collection_line_name(move.product_id) or description or False
+            # Propagate project/analytic from the originating SO line (order
+            # fallback for SO-line-less moves).
+            lv.update(self._line_analytic(move.sale_line_id, order))
             history.return_move_id.tmp_invoiced_qty = return_qty
             lines[key] = lv
 
@@ -1140,6 +1179,8 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
                 # invoice_status via Odoo's standard _compute_qty_invoiced.
                 'sale_line_ids': [(4, sol.id)],
             }
+            # Propagate project/analytic from the service SO line.
+            lv.update(self._line_analytic(sol, order))
             # Native creation -> account resolved from the product (service
             # income account); tax stripped (HK has no sales tax).
             AML.create(self._strip_tax(lv))
@@ -1156,7 +1197,7 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
                 if not tc.invoice_id or tc.invoice_id.state == 'cancel':
                     charge = self._get_transport_charge(tc, order)
                     desc = self._get_transport_description(tc, tc.name, order)
-                    line_vals_list.append({
+                    transport_vals = {
                         'move_id': invoice.id,
                         'product_id': tc.product_id.id,
                         'quantity': tc.product_uom_qty,
@@ -1168,7 +1209,11 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
                         'start_date': picking.scheduled_date_only,
                         'end_date': self.end_date,
                         'name': desc,
-                    })
+                    }
+                    # Transport has no originating SO line -> fall back to the
+                    # order-level project analytic.
+                    transport_vals.update(self._line_analytic(False, order))
+                    line_vals_list.append(transport_vals)
                     picking.is_create_transport_invoice = True
                     tc.is_create_transport_invoice = True
                     tc.invoice_id = invoice.id

@@ -139,11 +139,15 @@ class DamageLostInvoiceWizard(models.TransientModel):
         )
         invoice_vals = {
             'move_type': 'out_invoice',
-            'partner_id': order.partner_id.id,
+            # Bill the INVOICE address (native behaviour), not the order contact.
+            'partner_id': order.partner_invoice_id.id,
             'partner_shipping_id': order.partner_shipping_id.id,
             'invoice_date': fields.Date.today(),
             'rental_sale_id': order.id,
             'rental_invoice_type': move_invoice_type,
+            # Salesperson + sales team for reporting parity with native invoices.
+            'invoice_user_id': order.user_id.id,
+            'team_id': order.team_id.id,
             'journal_id': self.journal_id.id if self.journal_id else (
                 order.company_id._hksf_journal_for('repair').id
             ),
@@ -153,6 +157,16 @@ class DamageLostInvoiceWizard(models.TransientModel):
             'invoice_payment_term_id': order.payment_term_id.id,
         }
         invoice = self.env['account.move'].sudo().create(invoice_vals)
+
+        # Repair/damage/lost wizard lines have no originating sale.order.line,
+        # so attribute every line to the order's project analytic (if any).
+        # Mirrors native analytic propagation; empty when no project is set.
+        order_analytic = {}
+        if getattr(order, 'project_id', False) and hasattr(
+                order.project_id, '_get_analytic_distribution'):
+            _dist = order.project_id.sudo()._get_analytic_distribution()
+            if _dist:
+                order_analytic = {'analytic_distribution': _dist}
 
         for wline in lines_to_invoice:
             product = wline.product_id
@@ -192,6 +206,8 @@ class DamageLostInvoiceWizard(models.TransientModel):
                 'name': description,
                 'account_id': account.id if account else False,
             }
+            # Attribute to the order-level project analytic (no SO line here).
+            line_vals.update(order_analytic)
             self.env['account.move.line'].sudo().create(line_vals)
 
             # Partial-lost tracking: accumulate invoiced_qty on the source

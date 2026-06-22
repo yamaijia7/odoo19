@@ -400,4 +400,26 @@
               action="action_active_rentals"
               sequence="15"/>
 
+    <!-- ================================================================
+         Exclude RENTAL orders from the native "Orders to Invoice" and
+         "Orders to Upsell" lists. Rentals are billed via the dedicated
+         Active Rentals worklist + rental invoice wizard, not Odoo's native
+         per-order invoicing, so they are noise here. We only EXTEND the
+         native domain (add custom_sale_type != 'rent'); behaviour for
+         'sale'-type orders is unchanged.
+         ================================================================ -->
+    <!-- NOTE: custom_sale_type is a non-required stored Selection (default
+         'rent') with no backfill migration, so legacy/blank orders may be
+         NULL. A bare ('custom_sale_type','!=','rent') would ALSO drop NULL
+         rows in Postgres (NULL != 'rent' is not TRUE), wrongly hiding old
+         'sale'-type orders. The OR below hides ONLY true rentals and keeps
+         'sale' AND NULL orders visible. -->
+    <record id="sale.action_orders_to_invoice" model="ir.actions.act_window">
+        <field name="domain">['&amp;', ('invoice_status', '=', 'to invoice'), '|', ('custom_sale_type', '!=', 'rent'), ('custom_sale_type', '=', False)]</field>
+    </record>
+
+    <record id="sale.action_orders_upselling" model="ir.actions.act_window">
+        <field name="domain">['&amp;', ('invoice_status', '=', 'upselling'), '|', ('custom_sale_type', '!=', 'rent'), ('custom_sale_type', '=', False)]</field>
+    </record>
+
 </odoo>
