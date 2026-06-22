@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': "HKSF Rental",
-    'version': '19.0.1.79.0',
+    'version': '19.0.1.80.0',
     'category': 'Sales',
     'summary': "Consolidated HKSF rental: quotations, duration-based pricing, "
                "delivery/collection tracking and pro-rata rental invoicing.",

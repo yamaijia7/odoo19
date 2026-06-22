@@ -1054,6 +1054,9 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
             'end_date': self.end_date,
             'name': description,
         }
+        # Transport has no originating SO line -> fall back to the
+        # order-level project analytic (mirrors _add_transport_lines).
+        lv.update(self._line_analytic(False, order))
         transport_lines.append((0, 0, lv))
 
     def _service_remaining_qty(self, line):
