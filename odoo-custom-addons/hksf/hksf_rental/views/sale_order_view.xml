@@ -31,6 +31,16 @@
                 <attribute name="invisible">1</attribute>
             </xpath>
 
+            <!-- Hide Odoo's native invoice smart button (action_view_invoice) on RENTAL
+                 orders only, where hksf_rental shows its own "Invoices" stat button
+                 (action_view_delivery_invoice, which also aggregates child/linked-order
+                 invoices). On non-rental orders the native button is kept, preserving the
+                 stock "hide when no invoices" behaviour. Fixes the duplicate "Invoices"
+                 smart button on rentals. -->
+            <xpath expr="//button[@name='action_view_invoice']" position="attributes">
+                <attribute name="invisible">custom_sale_type == 'rent' or invoice_count == 0</attribute>
+            </xpath>
+
             <!-- Header buttons: unified Create Invoice + Print Quote + rental actions -->
             <xpath expr="//header" position="inside">
                 <!-- Unified Create Invoice dispatcher (replaces the native header
