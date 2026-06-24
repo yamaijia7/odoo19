@@ -555,6 +555,14 @@ class HksfDeliveryInvoiceWizard(models.TransientModel):
                     'custom_sale_line_id': move.sale_line_id.id if move.sale_line_id else False,
                     'delivery_history_ids': [(4, h.id) for h in move.delivery_return_history_ids],
                 }
+                # Mirror Charge-First: route rental revenue to the product/
+                # category Rental Income Account when configured; otherwise
+                # leave account_id unset so Odoo's _compute_account_id picks
+                # the standard default (blank is always safe).
+                rental_account = self._get_product_account(
+                    move.product_id, order.company_id)
+                if rental_account:
+                    line_vals['account_id'] = rental_account.id
                 # Propagate project/analytic from the originating SO line.
                 line_vals.update(self._line_analytic(move.sale_line_id, order))
                 line_vals_list.append(line_vals)
