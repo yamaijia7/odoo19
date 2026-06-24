@@ -225,7 +225,7 @@ class StockPicking(models.Model):
             if sdo and isinstance(sdo, _date_type):
                 expected_ym = '%02d/%02d/' % (sdo.year % 100, sdo.month)
                 for picking in self:
-                    if picking.state in ('draft', 'waiting', 'confirmed'):
+                    if picking.state in ('draft', 'waiting', 'confirmed', 'assigned'):
                         pt = picking.picking_type_id
                         name = picking.name or ''
                         # Check whether the name already matches the target month.
@@ -262,6 +262,26 @@ class StockPicking(models.Model):
     # Override button_validate — require scheduled_date_only
     # ------------------------------------------------------------------
 
+    def _resequence_from_service_date(self):
+        """Re-roll the picking name using scheduled_date_only as sequence_date.
+        Called just before validation so the final reference always reflects
+        the service month, regardless of when the picking was created or when
+        the service date was set.
+        """
+        from datetime import date as _date_type
+        for rec in self:
+            sdo = rec.scheduled_date_only
+            if not sdo or not isinstance(sdo, _date_type):
+                continue
+            pt = rec.picking_type_id
+            if not pt.sequence_id:
+                continue
+            expected_ym = '%02d/%02d/' % (sdo.year % 100, sdo.month)
+            parts = (rec.name or '').split('/')
+            name_ym = '/'.join(parts[2:4]) + '/' if len(parts) >= 4 else ''
+            if name_ym != expected_ym:
+                rec.name = pt.sequence_id.next_by_id(sequence_date=sdo)
+
     def button_validate(self):
         for rec in self:
             if not rec.scheduled_date_only:
@@ -269,6 +289,11 @@ class StockPicking(models.Model):
                     _("Please set the Service Date on picking '%s' before validating.")
                     % rec.name
                 )
+        # Ensure the WH/OUT/YY/MM number matches the service date.
+        # This is the definitive fix: even if the picking was created before
+        # the service date was filled in (common path from SO confirm), the
+        # name is corrected here, before Odoo posts the Done state.
+        self._resequence_from_service_date()
         res = super().button_validate()
         # After a collection (incoming) picking is validated, re-sync its
         # delivery.return.history rows to the ACTUAL collected quantity.
