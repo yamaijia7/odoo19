@@ -147,6 +147,101 @@ class StockPicking(models.Model):
             rec.partner_parent_id = rec.partner_id.parent_id or rec.partner_id
 
     # ------------------------------------------------------------------
+    # Create: assign sequence name using Service Date (scheduled_date_only)
+    # ------------------------------------------------------------------
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        """Override to pass scheduled_date_only (Service Date) as the
+        sequence_date when generating the WH/OUT/YY/MM/NNNNN reference,
+        so the YY/MM segment reflects the actual service month rather
+        than today's calendar date.
+
+        The base create() calls ``picking_type.sequence_id.next_by_id()``
+        with no date, which defaults to ``fields.Date.today()``.
+        We pre-resolve the name here (with the correct date) and pass it
+        in vals so the base sees a name != '/' and skips its own call.
+        """
+        defaults = self.default_get(['name', 'picking_type_id'])
+        for vals in vals_list:
+            # Only act when the base would generate a new sequence name.
+            if vals.get('name', '/') != '/' or defaults.get('name', '/') != '/':
+                continue
+            pt_id = vals.get('picking_type_id', defaults.get('picking_type_id'))
+            if not pt_id:
+                continue
+            picking_type = self.env['stock.picking.type'].browse(pt_id)
+            if not picking_type.sequence_id:
+                continue
+
+            # Resolve the best available date for the sequence.
+            # Priority: explicit scheduled_date_only > scheduled_date (converted)
+            # > fall through (let base use today).
+            seq_date = None
+            sdo = vals.get('scheduled_date_only')
+            if sdo:
+                # May be a date object or a string; next_by_id accepts both.
+                seq_date = sdo
+            else:
+                sd = vals.get('scheduled_date')
+                if sd:
+                    # Convert to date in user timezone (same logic as onchange).
+                    import pytz as _pytz
+                    from datetime import datetime as _datetime
+                    user_tz = self.env.user.tz or 'UTC'
+                    try:
+                        if isinstance(sd, str):
+                            sd = _datetime.fromisoformat(sd.replace('Z', '+00:00'))
+                        tz = _pytz.timezone(user_tz)
+                        seq_date = sd.astimezone(tz).date()
+                    except Exception:
+                        seq_date = sd.date() if hasattr(sd, 'date') else None
+
+            if seq_date:
+                vals['name'] = picking_type.sequence_id.next_by_id(
+                    sequence_date=seq_date
+                )
+
+        return super().create(vals_list)
+
+    def write(self, vals):
+        """If scheduled_date_only is set on a draft/waiting picking that still
+        has a system-generated name (WH/OUT/...), AND the existing name's
+        YY/MM segment does not match the new service date, re-roll the
+        sequence number so the reference reflects the correct month.
+
+        Only applies to unconfirmed pickings (state in draft/waiting/confirmed)
+        to avoid renaming done/cancelled records.
+        """
+        from datetime import date as _date_type
+        sdo = vals.get('scheduled_date_only')
+        if sdo:
+            if isinstance(sdo, str):
+                try:
+                    from datetime import date as _dt
+                    sdo = _dt.fromisoformat(sdo)
+                except Exception:
+                    sdo = None
+            if sdo and isinstance(sdo, _date_type):
+                expected_ym = '%02d/%02d/' % (sdo.year % 100, sdo.month)
+                for picking in self:
+                    if picking.state in ('draft', 'waiting', 'confirmed'):
+                        pt = picking.picking_type_id
+                        name = picking.name or ''
+                        # Check whether the name already matches the target month.
+                        # Names look like "WH/OUT/26/06/00002".
+                        # We look for the YY/MM/ portion anywhere after the second slash.
+                        parts = name.split('/')
+                        # Typical: ['WH', 'OUT', '26', '06', '00002']
+                        # expected_ym e.g. '26/09/'
+                        name_ym = '/'.join(parts[2:4]) + '/' if len(parts) >= 4 else ''
+                        if name_ym != expected_ym and pt.sequence_id:
+                            picking.name = pt.sequence_id.next_by_id(
+                                sequence_date=sdo
+                            )
+        return super().write(vals)
+
+    # ------------------------------------------------------------------
     # Onchange: auto-fill scheduled_date_only from scheduled_date
     # ------------------------------------------------------------------
 
