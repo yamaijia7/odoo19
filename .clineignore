@@ -1,0 +1,14 @@
+# Odoo core — never load into context
+odoo/
+
+# Third-party — only read on request
+odoo-custom-addons/oca/
+odoo-custom-addons/third_party/
+
+# Noise
+.DS_Store
+__pycache__/
+*.pyc
+*.log
+*.sql
+*.dump
